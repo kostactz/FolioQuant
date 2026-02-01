@@ -19,7 +19,7 @@ The application computes several key performance indicators in real-time within 
 
     $$S = \frac{E[R_p] - R_f}{\sigma_p}$$
 * Calculated using rolling 1-second return buckets to ensure statistical significance.
-* **Annualized**: Multiplied by $\sqrt{\text{seconds\_per\_year}}$ (approx. $\sqrt{31,536,000}$).
+* **Annualized**: Multiplied by $\sqrt{\text{seconds per year}}$.
 * Includes transaction costs (spread + simulated fee).
 
 ### 2. Hit Rate (Directional Accuracy)
