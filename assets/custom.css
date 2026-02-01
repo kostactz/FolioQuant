@@ -1,0 +1,533 @@
+/* 
+ * FolioQuant Dashboard - Custom Styles (Light Theme)
+ * Phase 3: Professional light theme with modern styling
+ */
+
+/* ============================================================================
+   GLOBAL STYLES - Ultra Minimalist Apple Design
+   ============================================================================ */
+
+/* Override Bootstrap border variables globally */
+:root {
+    --bs-border-width: 0 !important;
+    --bs-border-color: transparent !important;
+    --bs-border-color-translucent: transparent !important;
+    --bs-card-border-width: 0 !important;
+    --bs-card-border-color: transparent !important;
+}
+
+/* Force pure white background throughout */
+html {
+    background-color: #FFFFFF !important;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+    background-color: #FFFFFF !important;
+    color: #1d1d1f !important;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+}
+
+/* Dash-specific overrides */
+#react-entry-point,
+#_dash-app-content {
+    background-color: #FFFFFF !important;
+}
+
+/* Main container */
+.container-fluid {
+    background-color: #FFFFFF !important;
+    min-height: 100vh;
+}
+
+/* Override any dark theme remnants */
+div[data-dash-is-loading] {
+    background-color: #FFFFFF !important;
+}
+
+/* ============================================================================
+   CARDS & PANELS - Minimalist White
+   ============================================================================ */
+
+.card,
+.card > *,
+div.card,
+.card-header,
+.card-body,
+.card-footer {
+    border: none !important;
+    box-shadow: none !important;
+    --bs-card-border-width: 0 !important;
+    --bs-card-border-color: transparent !important;
+}
+
+.card {
+    border-radius: 16px !important;
+    margin-bottom: 1.5rem;
+    background-color: #FFFFFF;
+}
+
+.card-header {
+    background: #FFFFFF !important;
+    border-radius: 16px 16px 0 0 !important;
+    padding: 1.5rem 1.5rem 1rem 1.5rem;
+}
+
+.card-header h5 {
+    color: #1d1d1f;
+    font-weight: 600;
+    font-size: 1.25rem;
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.card-body {
+    padding: 1.5rem;
+}
+
+/* Sticky sidebar */
+.sticky-top {
+    position: sticky;
+    top: 20px;
+}
+
+/* ============================================================================
+   BUTTONS - Minimalist Apple Style
+   ============================================================================ */
+
+.btn {
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+    transition: all 0.15s ease !important;
+    border: 0.5px solid rgba(0, 0, 0, 0.1) !important;
+    letter-spacing: -0.01em !important;
+}
+
+.btn:hover {
+    transform: none;
+    opacity: 0.85;
+    box-shadow: none !important;
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn-success {
+    background: #34c759 !important;
+    border-color: #34c759 !important;
+}
+
+.btn-danger {
+    background: #ff3b30 !important;
+    border-color: #ff3b30 !important;
+}
+
+.btn-primary {
+    background: #007aff !important;
+    border-color: #007aff !important;
+}
+
+.btn-warning {
+    background: #ff9500 !important;
+    border-color: #ff9500 !important;
+    color: #FFFFFF !important;
+}
+
+.btn-outline-success,
+.btn-outline-warning {
+    background: transparent !important;
+    border: 0.5px solid currentColor !important;
+    box-shadow: none !important;
+}
+
+.btn-outline-success:hover {
+    background: #34c759 !important;
+    color: white !important;
+}
+
+.btn-outline-warning:hover {
+    background: #ff9500 !important;
+    color: white !important;
+}
+
+/* Button groups */
+.btn-group {
+    border-radius: 10px !important;
+    overflow: hidden;
+}
+
+/* ============================================================================
+   METRICS & DISPLAYS
+   ============================================================================ */
+
+/* Metric cards - Ultra clean */
+.metric-card {
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 1.25rem;
+    border: none;
+    transition: all 0.15s ease;
+}
+
+.metric-card:hover {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+/* Metric values */
+.metric-value {
+    font-size: 2rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+}
+
+/* Metric labels */
+.text-uppercase.text-muted.small.fw-bold {
+    letter-spacing: 0.5px;
+    font-size: 0.75rem;
+}
+
+/* ============================================================================
+   ALERTS & NOTIFICATIONS
+   ============================================================================ */
+
+.alert {
+    border-radius: 12px !important;
+    border: 0.5px solid !important;
+    box-shadow: none !important;
+    font-weight: 400;
+}
+
+.alert-danger {
+    background-color: #FFFFFF !important;
+    border-color: rgba(255, 59, 48, 0.3) !important;
+    color: #ff3b30 !important;
+}
+
+.alert-warning {
+    background-color: #FFFFFF !important;
+    border-color: rgba(255, 149, 0, 0.3) !important;
+    color: #ff9500 !important;
+}
+
+.alert-info {
+    background-color: #FFFFFF !important;
+    border-color: rgba(0, 122, 255, 0.3) !important;
+    color: #007aff !important;
+}
+
+.alert-success {
+    background-color: #FFFFFF !important;
+    border-color: rgba(52, 199, 89, 0.3) !important;
+    color: #34c759 !important;
+}
+
+/* ============================================================================
+   PROGRESS BARS
+   ============================================================================ */
+
+.progress {
+    border-radius: 8px !important;
+    height: 24px !important;
+    background-color: rgba(0, 0, 0, 0.04) !important;
+    box-shadow: none !important;
+    border: 0.5px solid rgba(0, 0, 0, 0.06) !important;
+}
+
+.progress-bar {
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: width 0.3s ease;
+}
+
+/* ============================================================================
+   SLIDERS
+   ============================================================================ */
+
+/* Dash slider styling */
+.rc-slider {
+    margin: 1rem 0 2rem 0;
+}
+
+.rc-slider-rail {
+    background-color: #DEE2E6;
+    height: 6px;
+}
+
+.rc-slider-track {
+    background: linear-gradient(90deg, #0066CC 0%, #0056B3 100%);
+    height: 6px;
+}
+
+.rc-slider-handle {
+    border: 3px solid #0066CC !important;
+    background-color: #FFFFFF !important;
+    width: 20px;
+    height: 20px;
+    margin-top: -7px;
+    box-shadow: 0 2px 6px rgba(0, 102, 204, 0.3) !important;
+}
+
+.rc-slider-handle:hover,
+.rc-slider-handle:active,
+.rc-slider-handle:focus {
+    border-color: #0056B3 !important;
+    box-shadow: 0 3px 8px rgba(0, 102, 204, 0.4) !important;
+}
+
+.rc-slider-mark-text {
+    color: #6C757D;
+    font-size: 0.75rem;
+}
+
+/* ============================================================================
+   DROPDOWNS
+   ============================================================================ */
+
+.Select-control,
+.dash-dropdown .Select-control {
+    border-radius: 10px !important;
+    border: 0.5px solid rgba(0, 0, 0, 0.1) !important;
+    box-shadow: none !important;
+    transition: all 0.15s ease;
+    background-color: #FFFFFF !important;
+}
+
+.Select-control:hover,
+.dash-dropdown .Select-control:hover {
+    border-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+.Select-menu-outer,
+.dash-dropdown .Select-menu-outer {
+    border-radius: 10px !important;
+    border: 0.5px solid rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+    margin-top: 4px;
+}
+
+/* ============================================================================
+   TABLES (DataTable)
+   ============================================================================ */
+
+.dash-table-container {
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+}
+
+.dash-table-container .dash-spreadsheet-container {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.dash-table-container table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+/* ============================================================================
+   BADGES & LABELS
+   ============================================================================ */
+
+.badge {
+    padding: 0.35rem 0.75rem;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+
+.bg-success {
+    background: #34c759 !important;
+}
+
+.bg-danger {
+    background: #ff3b30 !important;
+}
+
+.bg-warning {
+    background: #ff9500 !important;
+}
+
+/* ============================================================================
+   TYPOGRAPHY - Apple SF Pro
+   ============================================================================ */
+
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    color: #1d1d1f;
+    letter-spacing: -0.02em;
+}
+
+.text-primary {
+    color: #007aff !important;
+}
+
+.text-success {
+    color: #34c759 !important;
+}
+
+.text-danger {
+    color: #ff3b30 !important;
+}
+
+.text-warning {
+    color: #ff9500 !important;
+}
+
+.text-info {
+    color: #007aff !important;
+}
+
+.text-muted {
+    color: #86868b !important;
+}
+
+/* Monospace for numbers */
+.font-monospace {
+    font-family: 'SF Mono', 'Monaco', 'Menlo', Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   LAYOUT & SPACING - Minimalist
+   ============================================================================ */
+
+.shadow-sm {
+    box-shadow: none !important;
+}
+
+.border-0 {
+    border: none !important;
+}
+
+.rounded-3 {
+    border-radius: 16px !important;
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.card {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* ============================================================================
+   TOOLTIPS (Bootstrap Icons)
+   ============================================================================ */
+
+.bi {
+    vertical-align: middle;
+}
+
+.tooltip-icon {
+    cursor: help;
+    color: #6C757D;
+    margin-left: 0.25rem;
+    transition: color 0.2s ease;
+}
+
+.tooltip-icon:hover {
+    color: #0066CC;
+}
+
+/* ============================================================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .card {
+        border-radius: 8px !important;
+    }
+    
+    .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+    
+    .metric-value {
+        font-size: 1.5rem;
+    }
+}
+
+/* ============================================================================
+   PLOTLY CHART CONTAINERS
+   ============================================================================ */
+
+.js-plotly-plot {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.plotly .main-svg {
+    border-radius: 8px;
+}
+
+/* ============================================================================
+   CUSTOM COMPONENTS
+   ============================================================================ */
+
+/* Spread indicator */
+.spread-indicator {
+    background: linear-gradient(135deg, #FFF9E6 0%, #FFFBF0 100%);
+    border: 2px solid #FFC107;
+    border-radius: 8px;
+    padding: 0.75rem;
+    text-align: center;
+    font-weight: 600;
+    color: #975A16;
+    box-shadow: 0 2px 4px rgba(255, 193, 7, 0.2);
+}
+
+/* Status indicators */
+.status-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.status-live::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #28A745;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* Configuration labels */
+label.fw-bold {
+    color: #495057;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+/* Small text displays */
+.small.text-muted {
+    font-size: 0.875rem;
+    line-height: 1.5;
+}

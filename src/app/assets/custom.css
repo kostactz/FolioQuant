@@ -1,0 +1,10 @@
+/* Remove borders from all Bootstrap cards */
+.card {
+    border: none !important;
+    border-width: 0 !important;
+}
+
+/* Optional: Ensure specific card configurations also respect this */
+.card.shadow-sm {
+    border: none !important;
+}

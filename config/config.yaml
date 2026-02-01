@@ -1,0 +1,28 @@
+# FolioQuant Configuration
+
+coinbase:
+  ws_url: "wss://ws-feed.exchange.coinbase.com"
+  sandbox_url: "wss://ws-feed-public.sandbox.exchange.coinbase.com"
+  product_ids:
+    - "BTC-USD"
+    - "ETH-USD"
+  channels:
+    - "level2_batch"
+    - "heartbeat"
+  
+  # Connection parameters
+  subscription_timeout: 5  # Seconds to send subscription after connect
+  reconnect_delay: 1.0     # Initial reconnect delay
+  max_reconnect_delay: 60.0  # Maximum backoff
+  ping_interval: 30        # Heartbeat interval
+
+application:
+  ofi_window: 100          # Number of updates to aggregate
+  book_depth: 10           # Levels to display in dashboard
+  update_interval: 0.1     # Dashboard refresh rate (seconds)
+  max_queue_size: 10000    # Message queue size
+  
+dashboard:
+  title: "FolioQuant - Real-time OFI Analytics"
+  chart_history: 500       # Number of points to display
+  page_icon: "📊"

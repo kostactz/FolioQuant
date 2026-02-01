@@ -1,0 +1,32 @@
+# FolioQuant - Real-time Order Flow Imbalance Analytics
+# Python 3.10+
+
+# WebSocket and async
+websockets==12.0
+aiohttp==3.9.1
+
+# Data structures and processing
+sortedcontainers==2.4.0
+numpy==1.26.2
+pandas==2.2.3
+
+# Dashboard
+dash==2.14.2
+dash-bootstrap-components==1.5.0
+dash-table==5.0.0
+plotly==5.18.0
+dash-extensions==1.0.1
+
+# Configuration
+pyyaml==6.0.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Development
+black==23.12.1
+flake8==7.0.0
+mypy==1.7.1
