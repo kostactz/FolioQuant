@@ -16,7 +16,6 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional, Deque, List, Tuple
 from datetime import datetime
-from decimal import Decimal
 
 
 @dataclass
@@ -111,9 +110,21 @@ class DashboardState:
     slippage_buy: Optional[float] = None  # bps for 1.0 BTC
     slippage_sell: Optional[float] = None  # bps for 1.0 BTC
     information_coefficient: Optional[float] = None
-    information_coefficient: Optional[float] = None
     alpha_decay: dict = field(default_factory=dict)  # lag -> ic mapping
     recent_trades: List[dict] = field(default_factory=list)
+
+    # Phase 0 telemetry / traceability
+    schema_version: int = 1
+    message_id: int = 0
+    last_sequence: Optional[int] = None
+    last_event_ts: Optional[str] = None
+    last_process_ts: Optional[str] = None
+    fast_broadcast_interval_sec: float = 0.1
+    analytics_broadcast_interval_sec: float = 0.5
+    duplicate_ofi_points: int = 0
+    duplicate_metrics_points: int = 0
+    ofi_points_emitted: int = 0
+    metric_points_emitted: int = 0
     
     def reset(self):
         """Reset state (useful for reconnection)."""
@@ -131,10 +142,17 @@ class DashboardState:
         self.max_drawdown = None
         self.win_loss_ratio = None
         self.total_predictions = 0
-        self.total_predictions = 0
         self.price_correlation = None
         self.scatter_data = []
         self.volatility_history.clear()
+        self.message_id = 0
+        self.last_sequence = None
+        self.last_event_ts = None
+        self.last_process_ts = None
+        self.duplicate_ofi_points = 0
+        self.duplicate_metrics_points = 0
+        self.ofi_points_emitted = 0
+        self.metric_points_emitted = 0
         # Keep configuration settings (don't reset on reconnect)
 
 

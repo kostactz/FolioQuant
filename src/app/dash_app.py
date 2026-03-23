@@ -28,6 +28,7 @@ from datetime import datetime
 import subprocess
 import webbrowser
 import socket
+from pathlib import Path
 
 def find_free_port(start_port, max_attempts=100):
     """Find a free port starting from start_port."""
@@ -77,6 +78,7 @@ from ..clients.message_queue import AsyncMessageQueue
 from ..services.book_manager import BookManager
 from ..services.ofi_calculator import OFICalculator
 from ..services.metrics_service import MetricsService
+from ..services.metrics_audit import MetricsAuditLogger
 from ..utils.time_utils import calculate_latency
 
 
@@ -98,6 +100,17 @@ logging.getLogger('dash.dash').setLevel(logging.ERROR)
 # Configure specific loggers
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)  # Keep our app logs at INFO
+
+
+# Broadcast cadence contract
+FAST_BROADCAST_INTERVAL = 0.1
+ANALYTICS_BROADCAST_INTERVAL = 0.5
+
+
+# Phase 0 audit stream
+AUDIT_LOGGER = MetricsAuditLogger(
+    str(Path(__file__).resolve().parents[2] / "logs" / "metrics_audit.jsonl")
+)
 
 # Keep websocket client at INFO for connection issues
 logging.getLogger('src.clients.coinbase_client').setLevel(logging.INFO)
@@ -171,12 +184,21 @@ async def process_websocket_messages(
             signal = ofi_calculator.get_current_signal()
             
             if signal:
+                event_ts = signal.timestamp.isoformat() if signal.timestamp else None
+
                 # Update global state with new OFI signal
                 state.ofi_history.append({
                     'timestamp': signal.timestamp,
                     'ofi': float(signal.ofi_value),
-                    'mid_price': float(signal.mid_price)
+                    'mid_price': float(signal.mid_price),
+                    'sequence': event.get('sequence'),
+                    'message_id': state.message_id,
+                    'event_ts': event_ts,
+                    'process_ts': state.last_process_ts
                 })
+
+                state.last_event_ts = event_ts
+                state.last_sequence = event.get('sequence')
                 
                 # Calculate performance metrics
                 # Always update history
@@ -192,22 +214,24 @@ async def process_websocket_messages(
                     snapshot = None
                 
                 if snapshot:
-                    state.sharpe_ratio = float(snapshot.sharpe_ratio) if snapshot.sharpe_ratio else None
-                    state.hit_rate = float(snapshot.hit_rate) if snapshot.hit_rate else None
-                    state.max_drawdown = float(snapshot.max_drawdown) if snapshot.max_drawdown else None
-                    state.win_loss_ratio = float(snapshot.win_loss_ratio) if snapshot.win_loss_ratio else None
+                    state.sharpe_ratio = float(snapshot.sharpe_ratio) if snapshot.sharpe_ratio is not None else None
+                    state.hit_rate = float(snapshot.hit_rate) if snapshot.hit_rate is not None else None
+                    state.max_drawdown = float(snapshot.max_drawdown) if snapshot.max_drawdown is not None else None
+                    state.win_loss_ratio = float(snapshot.win_loss_ratio) if snapshot.win_loss_ratio is not None else None
                     state.total_predictions = snapshot.total_predictions
-                    state.price_correlation = float(snapshot.price_correlation) if snapshot.price_correlation else None
-                    state.information_coefficient = float(snapshot.information_coefficient) if snapshot.information_coefficient else None
-                    state.information_coefficient = float(snapshot.information_coefficient) if snapshot.information_coefficient else None
+                    state.price_correlation = float(snapshot.price_correlation) if snapshot.price_correlation is not None else None
+                    state.information_coefficient = float(snapshot.information_coefficient) if snapshot.information_coefficient is not None else None
                     state.alpha_decay = snapshot.alpha_decay or {}
 
                     # Append to metrics history for charting
                     state.metrics_history.append({
                         'timestamp': signal.timestamp,
                         'sharpe_ratio': state.sharpe_ratio,
-                        'sharpe_ratio': state.sharpe_ratio,
-                        'hit_rate': state.hit_rate
+                        'hit_rate': state.hit_rate,
+                        'sequence': event.get('sequence'),
+                        'message_id': state.message_id,
+                        'event_ts': event_ts,
+                        'process_ts': state.last_process_ts
                     })
                     
                     # Update diagnostics
@@ -220,6 +244,22 @@ async def process_websocket_messages(
                     
                     # Update trades
                     state.recent_trades = snapshot.recent_trades or []
+
+                    AUDIT_LOGGER.append({
+                        "schema_version": state.schema_version,
+                        "message_id": state.message_id,
+                        "sequence": state.last_sequence,
+                        "event_ts": state.last_event_ts,
+                        "process_ts": state.last_process_ts,
+                        "product_id": state.product_id,
+                        "ofi": float(signal.ofi_value),
+                        "mid_price": float(signal.mid_price) if signal.mid_price is not None else None,
+                        "sharpe_ratio": state.sharpe_ratio,
+                        "hit_rate": state.hit_rate,
+                        "drawdown": state.max_drawdown,
+                        "win_loss_ratio": state.win_loss_ratio,
+                        "correlation": state.price_correlation,
+                    })
 
                 # Calculate Execution Metrics (Slippage for 1.0 BTC)
                 if state.book_initialized:
@@ -236,6 +276,8 @@ async def process_websocket_messages(
     # Performance throttling state
     last_metrics_calc = 0.0
     METRICS_CALC_INTERVAL = 0.5  # Calculate expensive metrics at most every 500ms
+    state.fast_broadcast_interval_sec = FAST_BROADCAST_INTERVAL
+    state.analytics_broadcast_interval_sec = ANALYTICS_BROADCAST_INTERVAL
     
     # Logging state
     last_queue_log = 0.0
@@ -274,7 +316,10 @@ async def process_websocket_messages(
                 continue
             
             state.message_count += 1
+            state.message_id += 1
+            state.last_process_ts = receive_time.isoformat()
             msg_type = message.get("type")
+            state.last_sequence = message.get("sequence", state.last_sequence)
             
             # Calculate message latency using shared logic
             process_ts = start_time.timestamp()
@@ -350,9 +395,9 @@ async def process_websocket_messages(
             # Actually, I added broadcast_metrics at the END of the file in the previous step (around line 456).
             # This works if process_websocket_messages uses it at RUNTIME.
             current_time = time.time()
-            if getattr(state, 'last_broadcast_time', 0) + 0.1 < current_time:
-                 await broadcast_metrics()
-                 state.last_broadcast_time = current_time
+            if getattr(state, 'last_broadcast_time', 0) + FAST_BROADCAST_INTERVAL < current_time:
+                await broadcast_metrics()
+                state.last_broadcast_time = current_time
         
         except Exception as e:
             logger.error(f"[PROCESSOR] Error processing message: {e}", exc_info=True)
@@ -426,7 +471,7 @@ async def start_websocket_connection(product_id: str, ofi_window: int, port: int
     ofi_calculator = OFICalculator(window_size=ofi_window)
     metrics_service = MetricsService(
         window_size=1000,
-        use_dynamic_scaling=False,  # Fixed annualization for sanity
+        use_dynamic_scaling=True,
         trading_fee_bps=1.0,  # 1 bps trading fee to enforce realism
         signal_threshold=state.signal_threshold  # Use dynamic threshold
     )
@@ -639,9 +684,37 @@ async def broadcast_metrics():
     try:
         # Get latest metrics
         fast_metrics = update_fast_metrics(0)
-        slow_metrics = update_slow_metrics(0)
         ofi_metrics = update_ofi_chart_data(0)
         metrics_chart = update_metrics_chart_data(0)
+
+        # Emit slow analytics on a fixed cadence only
+        now = time.time()
+        include_slow = getattr(state, 'last_analytics_broadcast_time', 0) + ANALYTICS_BROADCAST_INTERVAL < now
+        slow_metrics = update_slow_metrics(0) if include_slow else None
+        if include_slow:
+            state.last_analytics_broadcast_time = now
+
+        if ofi_metrics and len(ofi_metrics) == 3:
+            data_dict = ofi_metrics[0] if isinstance(ofi_metrics[0], dict) else {}
+            x_lists = data_dict.get('x', [])
+            if x_lists and x_lists[0]:
+                ts_value = x_lists[0][0]
+                if ts_value == getattr(state, '_last_emitted_ofi_ts', None):
+                    state.duplicate_ofi_points += 1
+                else:
+                    state.ofi_points_emitted += 1
+                    state._last_emitted_ofi_ts = ts_value
+
+        if metrics_chart and len(metrics_chart) == 3:
+            data_dict = metrics_chart[0] if isinstance(metrics_chart[0], dict) else {}
+            x_lists = data_dict.get('x', [])
+            if x_lists and x_lists[0]:
+                ts_value = x_lists[0][0]
+                if ts_value == getattr(state, '_last_emitted_metrics_ts', None):
+                    state.duplicate_metrics_points += 1
+                else:
+                    state.metric_points_emitted += 1
+                    state._last_emitted_metrics_ts = ts_value
         
         # New: Trades chart
         from .dash_callbacks import update_execution_chart_data
@@ -649,6 +722,19 @@ async def broadcast_metrics():
         
         payload = {
             "type": "metrics_update",
+            "schema_version": state.schema_version,
+            "trace": {
+                "message_id": state.message_id,
+                "sequence": state.last_sequence,
+                "event_ts": state.last_event_ts,
+                "process_ts": state.last_process_ts,
+                "fast_interval_sec": FAST_BROADCAST_INTERVAL,
+                "analytics_interval_sec": ANALYTICS_BROADCAST_INTERVAL,
+                "ofi_points_emitted": state.ofi_points_emitted,
+                "metric_points_emitted": state.metric_points_emitted,
+                "duplicate_ofi_points": state.duplicate_ofi_points,
+                "duplicate_metrics_points": state.duplicate_metrics_points,
+            },
             "fast": fast_metrics,
             "slow": slow_metrics,
             "ofi": ofi_metrics,

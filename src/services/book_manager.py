@@ -223,9 +223,11 @@ class BookManager:
             # Update sequence tracking
             if self.enable_sequence_tracking and hasattr(snapshot, 'sequence'):
                 self.last_sequence = snapshot.sequence
+
+            snapshot_ts = self._parse_message_timestamp(message.get("time"))
             
             # Capture initial BBO state
-            self._capture_bbo_state()
+            self._capture_bbo_state(sequence=self.last_sequence, timestamp=snapshot_ts)
             
             # Mark as initialized
             self.initialized = True
@@ -312,7 +314,8 @@ class BookManager:
             
             # Capture new BBO state
             sequence_for_bbo = message.get("sequence") if self.enable_sequence_tracking else None
-            self._capture_bbo_state(sequence=sequence_for_bbo)
+            update_ts = self._parse_message_timestamp(time_str)
+            self._capture_bbo_state(sequence=sequence_for_bbo, timestamp=update_ts)
             
             self.stats.updates_applied += 1
             
@@ -388,28 +391,34 @@ class BookManager:
         expected = self.last_sequence + 1
         return sequence == expected
     
-    def _capture_bbo_state(self, sequence: Optional[int] = None) -> None:
+    def _capture_bbo_state(self, sequence: Optional[int] = None, timestamp: Optional[datetime] = None) -> None:
         """
         Capture current BBO state for OFI calculation.
-        
-        This method updates self.current_bbo with the current best bid/ask
-        from the order book. It's called after each snapshot or update.
-        
+
         Args:
             sequence: Optional sequence number to store with the BBO state
+            timestamp: Optional event timestamp from exchange message
         """
-        # OrderBook.best_bid and best_ask return (price, size) tuples or None
         best_bid = self.book.best_bid
         best_ask = self.book.best_ask
-        
+
         self.current_bbo = BBOState(
             best_bid_price=best_bid[0] if best_bid else None,
             best_bid_size=best_bid[1] if best_bid else None,
             best_ask_price=best_ask[0] if best_ask else None,
             best_ask_size=best_ask[1] if best_ask else None,
-            timestamp=datetime.utcnow(),
+            timestamp=timestamp or datetime.utcnow(),
             sequence=sequence,
         )
+
+    def _parse_message_timestamp(self, time_str: Optional[str]) -> Optional[datetime]:
+        """Parse exchange timestamp string into datetime."""
+        if not time_str:
+            return None
+        try:
+            return datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+        except Exception:
+            return None
     
     def get_current_bbo(self) -> BBOState:
         """

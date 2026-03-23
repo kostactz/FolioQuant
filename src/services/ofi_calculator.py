@@ -395,7 +395,7 @@ class OFICalculator:
         max_event = Decimal(str(max(event_values)))
         
         return OFISignal(
-            timestamp=datetime.utcnow(),
+            timestamp=latest.timestamp or datetime.utcnow(),
             ofi_value=ofi_value,
             window_size=len(self.events),
             max_window_size=self.window_size,

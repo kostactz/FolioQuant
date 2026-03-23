@@ -884,6 +884,11 @@ def update_ofi_chart_data(n):
     # Get the LATEST data point (not all history!)
     # This is key: we only send NEW data, not the entire dataset
     latest = state.ofi_history[-1]
+
+    latest_ts = latest.get('timestamp')
+    if latest_ts == getattr(state, '_last_ofi_chart_timestamp', None):
+        return {}, [], None
+    state._last_ofi_chart_timestamp = latest_ts
     
     ofi_value = latest['ofi']
     
@@ -1020,6 +1025,11 @@ def update_metrics_chart_data(n):
     
     # Get LATEST data
     latest = state.metrics_history[-1]
+
+    latest_ts = latest.get('timestamp')
+    if latest_ts == getattr(state, '_last_metrics_chart_timestamp', None):
+        return {}, [], None
+    state._last_metrics_chart_timestamp = latest_ts
     
     # Check if we have valid metrics
     if latest['sharpe_ratio'] is None or latest['hit_rate'] is None:

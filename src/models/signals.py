@@ -311,7 +311,6 @@ class MetricsSnapshot:
     ofi_mean: Optional[Decimal] = None
     ofi_std: Optional[Decimal] = None
     ofi_min: Optional[Decimal] = None
-    ofi_min: Optional[Decimal] = None
     ofi_max: Optional[Decimal] = None
 
     # Diagnostic Data

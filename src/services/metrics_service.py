@@ -30,7 +30,7 @@ import math
 import statistics
 from collections import deque
 from decimal import Decimal
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 from datetime import datetime
 
 from ..models.signals import OFISignal, MetricsSnapshot
@@ -74,7 +74,8 @@ class MetricsService:
         use_dynamic_scaling: bool = True,
         log_metrics: bool = False,
         trading_fee_bps: float = 0.0,
-        signal_threshold: float = 5.0
+        signal_threshold: float = 0.0,
+        min_return_std_epsilon: float = 1e-8
     ):
         """
         Initialize metrics service.
@@ -86,7 +87,7 @@ class MetricsService:
             use_dynamic_scaling: whether to calculate annualization factor from data frequency
             log_metrics: Whether to log metric calculations (verbose)
             trading_fee_bps: Trading fee in basis points per trade (default: 0.0)
-            signal_threshold: Min abs(OFI) to trigger a trade (default: 5.0)
+            signal_threshold: Min abs(OFI) to trigger a trade (default: 0.0)
         """
         if window_size <= 1:
             raise ValueError(f"window_size must be > 1, got {window_size}")
@@ -100,6 +101,8 @@ class MetricsService:
         self.log_metrics = log_metrics
         self.trading_fee_bps = Decimal(str(trading_fee_bps))
         self.signal_threshold = Decimal(str(signal_threshold))
+        self.min_return_std_epsilon = Decimal(str(min_return_std_epsilon))
+        self.last_volatility: Optional[Decimal] = None
         
         # Rolling windows for signal and price history
         self.signal_history: deque[Tuple[datetime, Decimal, Decimal, Decimal]] = deque(maxlen=window_size)
@@ -265,21 +268,26 @@ class MetricsService:
         curr_timestamp, curr_ofi, curr_price = curr_data[0], curr_data[1], curr_data[2]
         
         # Calculate price return
-        if prev_price == 0:
+        if prev_price == 0 or curr_price == 0:
             return  # Avoid division by zero
-        
-        price_return = (curr_price - prev_price) / prev_price
-        
-        # Strategy: position = sign(OFI)
-        # Return = position * price_return
-        if prev_ofi > self.signal_threshold:
-            position = Decimal('1.0')
-        elif prev_ofi < -self.signal_threshold:
-            position = Decimal('-1.0')
-        else:
-            position = Decimal('0.0')
 
-        strategy_return = position * price_return
+        # Keep this running series aligned with canonical strategy logic.
+        # Use previous cumulative return level to infer prior position path is not possible,
+        # so this online path approximates one-step positioning and costs for diagnostics.
+        price_return = (curr_price - prev_price) / prev_price
+
+        if prev_ofi > self.signal_threshold:
+            target_pos = Decimal('1.0')
+        elif prev_ofi < -self.signal_threshold:
+            target_pos = Decimal('-1.0')
+        else:
+            target_pos = Decimal('0.0')
+
+        gross_return = target_pos * price_return
+        cost_return = self._calculate_trade_cost(
+            Decimal('0.0'), target_pos, curr_data[3], curr_price
+        )
+        strategy_return = gross_return - cost_return
         
         # Update cumulative returns
         if self.cumulative_returns:
@@ -316,53 +324,23 @@ class MetricsService:
         """
         if len(self.signal_history) < 2:
             return None
-        
-        # 1. Calculate raw tick returns
-        # Group them by 1-second buckets
-        bucketed_returns: dict[int, Decimal] = {}
-        
-        # Track previous position for cost calculation
-        # Initialize assuming neutral start
-        current_pos = Decimal('0.0')
-        
-        for i in range(1, len(self.signal_history)):
-            prev_timestamp, prev_ofi, prev_price, prev_spread = self.signal_history[i-1]
-            curr_timestamp, curr_ofi, curr_price, curr_spread = self.signal_history[i]
-            
-            if prev_price == 0:
-                continue
-            
-            # Price return
-            price_return = (curr_price - prev_price) / prev_price
-            
-            # Hysteresis Logic:
-            # Only change position if signal exceeds threshold
-            # Otherwise, hold current position
-            if prev_ofi > self.signal_threshold:
-                target_pos = Decimal('1.0')
-            elif prev_ofi < -self.signal_threshold:
-                target_pos = Decimal('-1.0')
-            else:
-                target_pos = current_pos
-            
-            # Calculate cost return using helper
-            cost_return = self._calculate_trade_cost(
-                current_pos, target_pos, curr_spread, curr_price
-            )
-            
-            # Strategy return = (position * price_return) - cost
-            gross_return = target_pos * price_return
-            strategy_return = gross_return - cost_return
-            
-            # Update state
-            current_pos = target_pos
-            
-            # Bucket by second
-            bucket_ts = int(curr_timestamp.timestamp())
+
+        # 1. Build canonical strategy return series and group by 1-second buckets
+        strategy_returns = self._compute_strategy_returns()
+        if not strategy_returns:
+            return None
+
+        bucketed_returns: Dict[int, Decimal] = {}
+        bucket_times: List[datetime] = []
+        for item in strategy_returns:
+            ts = item['timestamp']
+            ret = item['return']
+            bucket_ts = int(ts.timestamp())
             if bucket_ts not in bucketed_returns:
                 bucketed_returns[bucket_ts] = Decimal('0')
-            bucketed_returns[bucket_ts] += strategy_return
-            
+                bucket_times.append(datetime.fromtimestamp(bucket_ts))
+            bucketed_returns[bucket_ts] += ret
+
         # 2. Calculate Sharpe on buckets
         # We need at least 2 buckets to calculate std dev
         if len(bucketed_returns) < 2:
@@ -375,28 +353,100 @@ class MetricsService:
             std_return = Decimal(str(statistics.stdev(returns_list)))
         except statistics.StatisticsError:
             return None
-        
-        if std_return == 0:
+
+        if std_return < self.min_return_std_epsilon:
             return None
-            
-        # 3. Annualize
-        # 1-second buckets -> 31,536,000 buckets per year
-        seconds_per_year = 31536000
-        annualization_factor = Decimal(str(math.sqrt(seconds_per_year)))
-        
-        # Assuming risk-free rate is roughly 0 per second
-        sharpe_annual = (mean_return / std_return) * annualization_factor
-        
+
+        # 3. Annualize with configurable logic
+        periods_per_year = self._estimate_periods_per_year(bucket_times)
+        annualization_factor = Decimal(str(math.sqrt(periods_per_year)))
+
+        # Convert annual risk-free rate into period rate and use excess return
+        rf_period = Decimal('0.0')
+        if self.risk_free_rate != 0:
+            try:
+                rf_period = ((Decimal('1.0') + self.risk_free_rate) ** (Decimal('1.0') / Decimal(str(periods_per_year)))) - Decimal('1.0')
+            except Exception:
+                rf_period = Decimal('0.0')
+
+        excess_mean_return = mean_return - rf_period
+        sharpe_annual = (excess_mean_return / std_return) * annualization_factor
+
         # Store for diagnostics
         self.last_volatility = std_return * annualization_factor
         
         return sharpe_annual
 
+    def _estimate_periods_per_year(self, timestamps: List[datetime]) -> float:
+        """Estimate annualization periods from data frequency or fallback config."""
+        if not self.use_dynamic_scaling:
+            return float(self.periods_per_year)
+
+        if len(timestamps) < 2:
+            return float(self.periods_per_year)
+
+        deltas = []
+        for i in range(1, len(timestamps)):
+            dt = (timestamps[i] - timestamps[i - 1]).total_seconds()
+            if dt > 0:
+                deltas.append(dt)
+
+        if not deltas:
+            return float(self.periods_per_year)
+
+        # Median spacing is robust to bursty updates
+        median_dt = statistics.median(deltas)
+        if median_dt <= 0:
+            return float(self.periods_per_year)
+
+        seconds_per_year = 31536000.0
+        estimated_periods = seconds_per_year / median_dt
+        return max(1.0, estimated_periods)
+
+    def _target_position(self, signal_value: Decimal, current_pos: Decimal) -> Decimal:
+        """Map signal to target position using threshold+hysteresis."""
+        if signal_value > self.signal_threshold:
+            return Decimal('1.0')
+        if signal_value < -self.signal_threshold:
+            return Decimal('-1.0')
+        return current_pos
+
+    def _compute_strategy_returns(self) -> List[Dict[str, Decimal | datetime]]:
+        """Build a canonical return stream used by all strategy metrics."""
+        if len(self.signal_history) < 2:
+            return []
+
+        current_pos = Decimal('0.0')
+        results: List[Dict[str, Decimal | datetime]] = []
+
+        for i in range(1, len(self.signal_history)):
+            prev_timestamp, prev_ofi, prev_price, prev_spread = self.signal_history[i - 1]
+            curr_timestamp, curr_ofi, curr_price, curr_spread = self.signal_history[i]
+
+            if prev_price == 0 or curr_price == 0:
+                continue
+
+            price_return = (curr_price - prev_price) / prev_price
+            target_pos = self._target_position(prev_ofi, current_pos)
+            cost_return = self._calculate_trade_cost(current_pos, target_pos, curr_spread, curr_price)
+            gross_return = target_pos * price_return
+            net_return = gross_return - cost_return
+
+            results.append({
+                'timestamp': curr_timestamp,
+                'return': net_return,
+                'position': target_pos,
+            })
+
+            current_pos = target_pos
+
+        return results
+
     def _calculate_trade_cost(
         self, 
         current_pos: Decimal, 
         target_pos: Decimal, 
-        spread: Decimal, 
+        spread: Optional[Decimal], 
         price: Decimal
     ) -> Decimal:
         """
@@ -415,6 +465,11 @@ class MetricsService:
         
         if turnover == 0:
             return Decimal('0.0')
+
+        if price is None or price <= 0:
+            return Decimal('0.0')
+
+        spread = spread if spread is not None else Decimal('0.0')
             
         # Spread cost (in price units)
         # Use current spread for immediate execution cost
@@ -463,18 +518,26 @@ class MetricsService:
         Returns:
             Tuple of (max_drawdown, current_drawdown) as percentages, or (None, None)
         """
-        if not self.cumulative_returns:
+        strategy_returns = self._compute_strategy_returns()
+        if not strategy_returns:
             return None, None
-        
-        current_value = self.cumulative_returns[-1]
-        
-        if self.peak_value == 0:
-            return None, None
-        
-        current_drawdown = (self.peak_value - current_value) / self.peak_value * Decimal('100')
-        max_drawdown = self.max_drawdown * Decimal('100')
-        
-        return max_drawdown, current_drawdown
+
+        cumulative = Decimal('1.0')
+        peak = Decimal('1.0')
+        max_dd = Decimal('0.0')
+
+        for item in strategy_returns:
+            ret = item['return']
+            cumulative *= (Decimal('1.0') + ret)
+            if cumulative > peak:
+                peak = cumulative
+            if peak > 0:
+                dd = (peak - cumulative) / peak
+                if dd > max_dd:
+                    max_dd = dd
+
+        current_dd = Decimal('0.0') if peak == 0 else (peak - cumulative) / peak
+        return max_dd * Decimal('100'), current_dd * Decimal('100')
     
     def calculate_win_loss_ratio(self) -> Tuple[Optional[Decimal], Optional[Decimal], Optional[Decimal]]:
         """
@@ -486,32 +549,15 @@ class MetricsService:
         Returns:
             Tuple of (win_loss_ratio, avg_win, avg_loss), or (None, None, None)
         """
-        if len(self.signal_history) < 2:
+        strategy_returns = self._compute_strategy_returns()
+        if not strategy_returns:
             return None, None, None
-        
+
         winning_magnitudes: List[Decimal] = []
         losing_magnitudes: List[Decimal] = []
-        
-        for i in range(1, len(self.signal_history)):
-            prev_timestamp, prev_ofi, prev_price, _ = self.signal_history[i-1]
-            curr_timestamp, curr_ofi, curr_price, _ = self.signal_history[i]
-            
-            if prev_price == 0 or prev_ofi == 0:
-                continue
-            
-            # Price return
-            price_return = (curr_price - prev_price) / prev_price
-            
-            # Strategy position
-            if prev_ofi > 0:
-                position = Decimal('1.0')
-            elif prev_ofi < 0:
-                position = Decimal('-1.0')
-            else:
-                continue
-            
-            strategy_return = position * price_return
-            
+
+        for item in strategy_returns:
+            strategy_return = item['return']
             if strategy_return > 0:
                 winning_magnitudes.append(abs(strategy_return))
             elif strategy_return < 0:
@@ -764,7 +810,7 @@ class MetricsService:
             ofi_max=ofi_max,
             # Diagnostic Data
             scatter_data=self.get_scatter_data(history_len=500),
-            rolling_volatility=float(std_return * annualization_factor) if 'std_return' in locals() and 'annualization_factor' in locals() else None,
+            rolling_volatility=float(self.last_volatility) if self.last_volatility is not None else None,
             recent_trades=list(self.recent_trades)
         )
         

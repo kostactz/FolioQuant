@@ -2,6 +2,11 @@ if (!window.dash_clientside) {
     window.dash_clientside = {};
 }
 
+window.__folioquant_stream_state = window.__folioquant_stream_state || {
+    lastOfiTs: null,
+    lastMetricsTs: null,
+};
+
 window.dash_clientside.ws_clientside = {
 
     update_connection_status: function (msg) {
@@ -52,7 +57,7 @@ window.dash_clientside.ws_clientside = {
         if (!msg || !msg.data) return Array(8).fill(window.dash_clientside.no_update);
         try {
             const data = JSON.parse(msg.data);
-            if (data.type === "metrics_update") {
+            if (data.type === "metrics_update" && data.slow && Array.isArray(data.slow)) {
                 return data.slow.slice(0, 8);
             }
         } catch (e) { console.error(e); }
@@ -63,7 +68,7 @@ window.dash_clientside.ws_clientside = {
         if (!msg || !msg.data) return window.dash_clientside.no_update;
         try {
             const data = JSON.parse(msg.data);
-            if (data.type === "metrics_update") {
+            if (data.type === "metrics_update" && data.slow && Array.isArray(data.slow)) {
                 return data.slow[8];
             }
         } catch (e) { console.error(e); }
@@ -74,7 +79,7 @@ window.dash_clientside.ws_clientside = {
         if (!msg || !msg.data) return Array(3).fill(window.dash_clientside.no_update);
         try {
             const data = JSON.parse(msg.data);
-            if (data.type === "metrics_update") {
+            if (data.type === "metrics_update" && data.slow && Array.isArray(data.slow)) {
                 return data.slow.slice(9, 12);
             }
         } catch (e) { console.error(e); }
@@ -85,7 +90,7 @@ window.dash_clientside.ws_clientside = {
         if (!msg || !msg.data) return Array(5).fill(window.dash_clientside.no_update);
         try {
             const data = JSON.parse(msg.data);
-            if (data.type === "metrics_update") {
+            if (data.type === "metrics_update" && data.slow && Array.isArray(data.slow)) {
                 return data.slow.slice(12, 17);
             }
         } catch (e) { console.error(e); }
@@ -97,7 +102,17 @@ window.dash_clientside.ws_clientside = {
         try {
             const data = JSON.parse(msg.data);
             if (data.type === "metrics_update") {
-                return data.ofi;
+                const payload = data.ofi;
+                if (!payload || !Array.isArray(payload) || payload.length < 1) {
+                    return window.dash_clientside.no_update;
+                }
+                const dataDict = payload[0] || {};
+                const ts = dataDict.x && dataDict.x[0] && dataDict.x[0][0] ? dataDict.x[0][0] : null;
+                if (!ts || ts === window.__folioquant_stream_state.lastOfiTs) {
+                    return window.dash_clientside.no_update;
+                }
+                window.__folioquant_stream_state.lastOfiTs = ts;
+                return payload;
             }
         } catch (e) { console.error(e); }
         return window.dash_clientside.no_update;
@@ -108,7 +123,17 @@ window.dash_clientside.ws_clientside = {
         try {
             const data = JSON.parse(msg.data);
             if (data.type === "metrics_update") {
-                return data.metrics;
+                const payload = data.metrics;
+                if (!payload || !Array.isArray(payload) || payload.length < 1) {
+                    return window.dash_clientside.no_update;
+                }
+                const dataDict = payload[0] || {};
+                const ts = dataDict.x && dataDict.x[0] && dataDict.x[0][0] ? dataDict.x[0][0] : null;
+                if (!ts || ts === window.__folioquant_stream_state.lastMetricsTs) {
+                    return window.dash_clientside.no_update;
+                }
+                window.__folioquant_stream_state.lastMetricsTs = ts;
+                return payload;
             }
         } catch (e) { console.error(e); }
         return window.dash_clientside.no_update;
