@@ -96,11 +96,11 @@ def update_fast_metrics(n):
 def _get_connection_status_component():
     """Generate the connection status badge component."""
     if state.connected and state.book_initialized:
-        return html.Span("🟢 Connected", className="badge bg-success")
+        return html.Span("Connected", className="badge bg-success")
     elif state.connected:
-        return html.Span("🟡 Initializing", className="badge bg-warning text-dark")
+        return html.Span("Initializing", className="badge bg-warning text-dark")
     else:
-        return html.Span("🔴 Disconnected", className="badge bg-danger")
+        return html.Span("Disconnected", className="badge bg-danger")
 
 
 def _get_price_component():
@@ -123,9 +123,9 @@ def _get_footer_component():
             heartbeat_str = f" | Heartbeat: {state.last_heartbeat[:19]}"
     
     return html.Small([
-        f"📊 Messages: {state.message_count:,}",
+        f"Messages: {state.message_count:,}",
         heartbeat_str,
-        f" | {'🟢 Streaming' if state.connected else '🔴 Offline'}"
+        f" | {'Streaming' if state.connected else 'Offline'}"
     ])
 
 
@@ -192,13 +192,13 @@ def _get_ofi_component():
     latest_ofi = state.ofi_history[-1]['ofi']
     
     if latest_ofi > 0:
-        direction = "📈 BUY"
+        direction = "BUY"
         color_class = "text-success"
     elif latest_ofi < 0:
-        direction = "📉 SELL"
+        direction = "SELL"
         color_class = "text-danger"
     else:
-        direction = "➡️ NEUTRAL"
+        direction = "NEUTRAL"
         color_class = "text-muted"
     
     return html.Div([
@@ -1204,18 +1204,18 @@ def toggle_streaming(play_clicks, pause_clicks):
     ctx = callback_context
     if not ctx.triggered:
         # Initial state
-        return "🟢 Streaming LIVE", True, False
+        return "Streaming Live", True, False
     
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
     if button_id == 'btn-stream-play':
         # Enable streaming
         state.streaming_enabled = True
-        return "🟢 Streaming LIVE", True, False
+        return "Streaming Live", True, False
     else:
         # Pause streaming
         state.streaming_enabled = False
-        return "⏸️ Streaming Paused", False, True
+        return "Streaming Paused", False, True
 
 
 # Old update_error_alert() function removed - now part of update_fast_metrics()
@@ -1329,12 +1329,12 @@ def manage_connection(start_clicks, stop_clicks, product):
         from .dash_app import start_background_websocket
         state.reset()
         start_background_websocket(product_id=state.product_id, ofi_window=state.ofi_window)
-        return "🔄 Starting...", "Stop"
+        return "Starting...", "Stop"
         
     elif trigger_id == 'btn-stop':
         from .dash_app import stop_background_websocket
         stop_background_websocket()
-        return "Start", "✅ Stopped"
+        return "Start", "Stopped"
         
     elif trigger_id == 'product-selector':
         if state.connected:
@@ -1344,14 +1344,14 @@ def manage_connection(start_clicks, stop_clicks, product):
             time.sleep(0.5)
             state.reset()
             start_background_websocket(product_id=state.product_id, ofi_window=state.ofi_window)
-            return "🔄 Reconnecting...", "Stop"
+            return "Reconnecting...", "Stop"
             
     # Default / Interval update: Check actual state
     if state.connected:
         if state.book_initialized:
-            return "✅ Running", "Stop"
+            return "Running", "Stop"
         else:
-            return "🟡 Connecting...", "Stop"
+            return "Connecting...", "Stop"
     else:
         return "Start", "Stop"
 

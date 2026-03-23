@@ -774,7 +774,7 @@ def main():
     # Create Dash app
     app = create_app(ws_port=ws_port)
     
-    print(f"\n🚀 Dashboard running at http://{args.host}:{args.port}")
+    print(f"\nDashboard running at http://{args.host}:{args.port}")
     print("Press Ctrl+C to stop\n")
     
     # Suppress Flask's startup banner

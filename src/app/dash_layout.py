@@ -23,6 +23,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _help_icon(tooltip_text):
+    """Create a consistent hoverable question-mark help icon."""
+    return html.I(
+        className="bi bi-question-circle tooltip-icon ms-1",
+        title=tooltip_text,
+        **{"aria-label": "Help"}
+    )
+
 def create_header():
     """
     Create dashboard header with title and connection status.
@@ -71,49 +80,49 @@ def create_metrics_panel():
     """
     return dbc.Card([
         dbc.CardHeader(html.H5([
-            "Market Metrics ",
-            html.I(className="bi bi-graph-up", style={'fontSize': '1.2rem'})
+            "Market Metrics",
+            _help_icon("Live top-of-book values. Compare these to gauge liquidity and short-term pressure.")
         ], className="mb-0")),
         dbc.CardBody([
             # Stack metrics vertically for sidebar
             html.Div([
                 html.H6([
-                    "Best Bid ",
-                    html.I(className="bi bi-info-circle tooltip-icon", 
-                           title="Highest price buyers are willing to pay")
+                    "Best Bid",
+                    _help_icon("Highest current buy price. Higher bid often signals stronger demand.")
                 ], className="text-muted mb-2"),
                 html.Div(id='metric-bid', className="h4 text-success mb-3 font-monospace")
             ], className="metric-card mb-3"),
             
             html.Div([
                 html.H6([
-                    "Best Ask ",
-                    html.I(className="bi bi-info-circle tooltip-icon",
-                           title="Lowest price sellers are willing to accept")
+                    "Best Ask",
+                    _help_icon("Lowest current sell price. Lower ask can indicate stronger selling pressure.")
                 ], className="text-muted mb-2"),
                 html.Div(id='metric-ask', className="h4 text-danger mb-3 font-monospace")
             ], className="metric-card mb-3"),
             
             html.Div([
                 html.H6([
-                    "Spread ",
-                    html.I(className="bi bi-info-circle tooltip-icon",
-                           title="Difference between best bid and ask. Lower = more liquid")
+                    "Spread",
+                    _help_icon("Ask minus bid. Smaller spread means tighter market and usually better liquidity.")
                 ], className="text-muted mb-2"),
                 html.Div(id='metric-spread', className="h4 text-warning mb-3 font-monospace")
             ], className="metric-card mb-3"),
             
             html.Div([
                 html.H6([
-                    "Micro-Price ",
-                    html.I(className="bi bi-info-circle tooltip-icon",
-                           title="Volume-weighted price: (q_bid × p_ask + q_ask × p_bid) / (q_bid + q_ask)")
+                    "Micro-Price",
+                    _help_icon("Fair-value estimate weighted by top bid/ask sizes. Above mid can hint buy pressure.")
                 ], className="text-muted mb-2"),
                 html.Div(id='metric-micro', className="h4 text-info mb-3 font-monospace")
             ], className="metric-card mb-3"),
             
             # Book imbalance progress bar
             html.Hr(className="my-3", style={'border': 'none', 'height': '1px', 'backgroundColor': 'rgba(0, 0, 0, 0.04)'}),
+            html.H6([
+                "Book Imbalance",
+                _help_icon("Compares top bid vs ask size. Positive means buy-side depth is larger; negative means sell-side depth is larger.")
+            ], className="text-muted mb-2"),
             html.Div(id='book-imbalance')
         ])
     ], className="mb-4 shadow-sm", style={'height': '100%', 'display': 'flex', 'flexDirection': 'column'})
@@ -130,12 +139,18 @@ def create_depth_chart():
         dbc.Card component with order book table and depth chart
     """
     return dbc.Card([
-        dbc.CardHeader(html.H5("Order Book & Depth", className="mb-0")),
+        dbc.CardHeader(html.H5([
+            "Order Book & Depth",
+            _help_icon("Shows visible liquidity by price level. Steeper depth means more size available to trade.")
+        ], className="mb-0")),
         dbc.CardBody([
             dbc.Row([
                 # Left: Order Book Table
                 dbc.Col([
-                    html.H6("Order Book", className="text-center text-muted mb-3"),
+                    html.H6([
+                        "Order Book",
+                        _help_icon("Top bid/ask levels with cumulative size. Watch how size stacks or disappears.")
+                    ], className="text-center text-muted mb-3"),
                     
                     # Asks table (reversed, worst at top)
                     dash_table.DataTable(
@@ -229,7 +244,10 @@ def create_depth_chart():
                 
                 # Right: Depth Chart
                 dbc.Col([
-                    html.H6("Depth Chart", className="text-center text-muted mb-3"),
+                    html.H6([
+                        "Depth Chart",
+                        _help_icon("Cumulative bid/ask size across prices. Larger one-sided depth can act as short-term support/resistance.")
+                    ], className="text-center text-muted mb-3"),
                     dcc.Graph(
                         id='depth-chart',
                         config={'displayModeBar': False},
@@ -256,7 +274,10 @@ def create_ofi_chart():
         dbc.Card component with OFI chart
     """
     return dbc.Card([
-        dbc.CardHeader(html.H5("OFI Signal (Streaming)", className="mb-0")),
+        dbc.CardHeader(html.H5([
+            "OFI Signal (Streaming)",
+            _help_icon("Order Flow Imbalance over time. Positive values suggest buy pressure; negative values suggest sell pressure.")
+        ], className="mb-0")),
         dbc.CardBody([
             dcc.Graph(
                 id='ofi-chart',
@@ -267,7 +288,10 @@ def create_ofi_chart():
             # Current OFI value
             html.Hr(className="my-3"),
             html.Div([
-                html.H6("Current OFI", className="text-center text-muted mb-2"),
+                html.H6([
+                    "Current OFI",
+                    _help_icon("Latest OFI reading. Magnitude shows strength; sign shows direction.")
+                ], className="text-center text-muted mb-2"),
                 html.Div(id='current-ofi', className="h3 text-center")
             ])
         ])
@@ -345,7 +369,10 @@ def create_execution_chart(trades=None):
 
     return dbc.Card([
         dbc.CardHeader([
-            html.H5("Live Execution Feed", className="mb-0"),
+            html.H5([
+                "Live Execution Feed",
+                _help_icon("Price line with simulated buys and sells. Trade markers help inspect entry/exit timing.")
+            ], className="mb-0"),
             html.Small("Real-time price feed with simulated strategy trades", className="text-muted")
         ]),
         dbc.CardBody([
@@ -372,7 +399,10 @@ def create_metrics_chart():
         dbc.Card component with metrics chart
     """
     return dbc.Card([
-        dbc.CardHeader(html.H5("Strategy Performance History", className="mb-0")),
+        dbc.CardHeader(html.H5([
+            "Strategy Performance History",
+            _help_icon("Rolling history of key strategy quality metrics. Look for stable trends instead of single spikes.")
+        ], className="mb-0")),
         dbc.CardBody([
             dcc.Graph(
                 id='metrics-chart',
@@ -400,33 +430,33 @@ def create_performance_metrics():
         dbc.Card component with performance metrics
     """
     return dbc.Card([
-        dbc.CardHeader(html.H5("Performance Metrics", className="mb-0")),
+        dbc.CardHeader(html.H5([
+            "Performance Metrics",
+            _help_icon("Real-time strategy quality and system health indicators.")
+        ], className="mb-0")),
         dbc.CardBody([
             # Row 1: Latency & Throughput
             dbc.Row([
                 dbc.Col([
                     html.H6([
-                        "Total Latency ",
-                        html.I(className="bi bi-info-circle tooltip-icon",
-                               title="Total End-to-End Latency (Exchange -> Dashboard)")
+                        "Total Latency",
+                        _help_icon("Total delay from exchange event to dashboard update. Lower is better.")
                     ], className="text-muted mb-2"),
                     html.Div(id='perf-latency', className="h4 mb-0 font-monospace")
                 ], width=4),
                 
                 dbc.Col([
                     html.H6([
-                        "Network vs System ",
-                        html.I(className="bi bi-info-circle tooltip-icon",
-                               title="Breakdown: Exchange->Ingest vs Ingest->Process")
+                        "Network vs System",
+                        _help_icon("Latency split: network transit vs local processing. Helps identify bottlenecks.")
                     ], className="text-muted mb-2"),
                      html.Div(id='perf-latency-breakdown', className="mb-0 font-monospace")
                 ], width=4),
                 
                 dbc.Col([
                     html.H6([
-                        "Throughput ",
-                        html.I(className="bi bi-info-circle tooltip-icon",
-                               title="Messages processed per second")
+                        "Throughput",
+                        _help_icon("How many messages are processed per second. Higher is better if latency remains stable.")
                     ], className="text-muted mb-2"),
                     html.Div(id='perf-throughput', className="h4 mb-0 font-monospace")
                 ], width=4)
@@ -437,29 +467,44 @@ def create_performance_metrics():
             # Row 2: Trading Performance
             dbc.Row([
                 dbc.Col([
-                    html.H6("Sharpe Ratio", className="text-muted mb-2"),
+                    html.H6([
+                        "Sharpe Ratio",
+                        _help_icon("Risk-adjusted return. Higher is better; near zero means weak edge.")
+                    ], className="text-muted mb-2"),
                     html.Div(id='perf-sharpe', className="h4 mb-0 font-monospace")
                 ], width=4),
                 
                 dbc.Col([
-                    html.H6("Hit Rate", className="text-muted mb-2"),
+                    html.H6([
+                        "Hit Rate",
+                        _help_icon("Percent of correct directional signals. Above 50% is generally favorable.")
+                    ], className="text-muted mb-2"),
                     html.Div(id='perf-hitrate', className="h4 mb-0 font-monospace")
                 ], width=4),
                 
                 dbc.Col([
-                    html.H6("Max Drawdown", className="text-muted mb-2"),
+                    html.H6([
+                        "Max Drawdown",
+                        _help_icon("Largest peak-to-trough decline. Smaller absolute drawdown is better.")
+                    ], className="text-muted mb-2"),
                     html.Div(id='perf-drawdown', className="h4 mb-0 font-monospace")
                 ], width=4)
             ], className="mb-3"),
             
             dbc.Row([
                 dbc.Col([
-                    html.H6("Win/Loss Ratio", className="text-muted mb-2"),
+                    html.H6([
+                        "Win/Loss Ratio",
+                        _help_icon("Average win size divided by average loss size. Above 1 means wins outweigh losses.")
+                    ], className="text-muted mb-2"),
                     html.Div(id='perf-winloss', className="h4 mb-0 font-monospace")
                 ], width=6),
                 
                 dbc.Col([
-                    html.H6("Price Correlation", className="text-muted mb-2"),
+                    html.H6([
+                        "Price Correlation",
+                        _help_icon("How strongly OFI and price changes move together. Positive values suggest alignment.")
+                    ], className="text-muted mb-2"),
                     html.Div(id='perf-correlation', className="h4 mb-0 font-monospace")
                 ], width=6)
             ])
@@ -593,14 +638,14 @@ def create_sidebar():
             html.Label("Streaming", className="fw-bold"),
             dbc.ButtonGroup([
                 dbc.Button(
-                    [html.I(className="me-1"), "▶️ Stream"],
+                    [html.I(className="me-1"), "Stream"],
                     id='btn-stream-play',
                     color='success',
                     outline=True,
                     size='sm'
                 ),
                 dbc.Button(
-                    [html.I(className="me-1"), "⏸️ Pause"],
+                    [html.I(className="me-1"), "Pause"],
                     id='btn-stream-pause',
                     color='warning',
                     outline=True,
@@ -615,34 +660,29 @@ def create_sidebar():
             # Info panel
             dbc.Alert([
                 html.H6([
-                    html.I(className="bi bi-lightbulb me-2"),
                     "How to use:"
                 ], className="alert-heading mb-3"),
                 html.Ul([
                     html.Li("Select product and adjust parameters above"),
                     html.Li("Click 'Start' to connect to live data"),
-                    html.Li("Use ▶️/⏸️ buttons to control streaming"),
+                    html.Li("Use Stream/Pause buttons to control streaming"),
                     html.Li("Monitor real-time OFI signals and metrics")
                 ], className="mb-3"),
                 html.Hr(className="my-2"),
                 html.Div([
                     html.Strong([
-                        html.I(className="bi bi-bar-chart me-2"),
                         "OFI Interpretation:"
                     ]),
                     html.Br(),
                     html.Div([
-                        html.Span("📈 ", style={'fontSize': '1.2rem'}),
                         html.Strong("Positive", className="text-success"),
                         " = Buying pressure"
                     ], className="mb-1"),
                     html.Div([
-                        html.Span("📉 ", style={'fontSize': '1.2rem'}),
                         html.Strong("Negative", className="text-danger"),
                         " = Selling pressure"
                     ], className="mb-1"),
                     html.Div([
-                        html.Span("➡️ ", style={'fontSize': '1.2rem'}),
                         html.Strong("Zero", className="text-muted"),
                         " = Balanced market"
                     ])
@@ -695,7 +735,10 @@ def create_analyst_view():
                             dbc.Card([
                                 dbc.CardBody([
                                     html.H4(id='analyst-slippage-buy', className="text-danger mb-1"),
-                                    html.Small("Buy Slippage (bps)", className="text-muted")
+                                    html.Small([
+                                        "Buy Slippage (bps)",
+                                        _help_icon("Extra cost versus mid-price when buying. Lower is better.")
+                                    ], className="text-muted")
                                 ])
                             ], className="text-center mb-3 bg-light border-0")
                         ]),
@@ -703,7 +746,10 @@ def create_analyst_view():
                             dbc.Card([
                                 dbc.CardBody([
                                     html.H4(id='analyst-slippage-sell', className="text-success mb-1"),
-                                    html.Small("Sell Slippage (bps)", className="text-muted")
+                                    html.Small([
+                                        "Sell Slippage (bps)",
+                                        _help_icon("Price concession versus mid-price when selling. Lower is better.")
+                                    ], className="text-muted")
                                 ])
                             ], className="text-center mb-3 bg-light border-0")
                         ])
@@ -713,7 +759,10 @@ def create_analyst_view():
                 
                 # Right Column: Signal Quality & Inventory
                 dbc.Col([
-                    html.H6("2. Signal Quality (Alpha Decay)", className="text-primary mb-3"),
+                    html.H6([
+                        "2. Signal Quality (Alpha Decay)",
+                        _help_icon("Shows how quickly signal edge fades after entry. Slower decay means signal lasts longer.")
+                    ], className="text-primary mb-3"),
                     dcc.Graph(
                         id='alpha-decay-chart',
                         config={'displayModeBar': False},
@@ -722,7 +771,10 @@ def create_analyst_view():
                     
                     html.Hr(),
                     
-                    html.H6("4. Inventory Risk (Simulated)", className="text-primary mb-3"),
+                    html.H6([
+                        "4. Inventory Risk (Simulated)",
+                        _help_icon("Open inventory exposure. Higher skew increases risk and can require stricter signals.")
+                    ], className="text-primary mb-3"),
                     html.Div([
                         html.Div([
                             html.Span("Inventory Usage: ", className="fw-bold"),
@@ -748,7 +800,10 @@ def create_scatter_chart():
     """
     return dbc.Card([
         dbc.CardHeader([
-            html.H5("Signal Diagnostics: OFI vs Price Change", className="mb-0"),
+            html.H5([
+                "Signal Diagnostics: OFI vs Price Change",
+                _help_icon("Each point compares OFI to future price move. A clearer upward slope suggests better predictive power.")
+            ], className="mb-0"),
             html.Small("Correlation (Slope) indicates predictive power", className="text-muted")
         ]),
         dbc.CardBody([
@@ -769,7 +824,10 @@ def create_volatility_chart():
     - Y: Annualized Volatility
     """
     return dbc.Card([
-        dbc.CardHeader(html.H5("Rolling Volatility (Risk)", className="mb-0")),
+        dbc.CardHeader(html.H5([
+            "Rolling Volatility (Risk)",
+            _help_icon("Recent variability of returns. Higher volatility means higher risk and noisier PnL.")
+        ], className="mb-0")),
         dbc.CardBody([
             dcc.Graph(
                 id='volatility-chart',
