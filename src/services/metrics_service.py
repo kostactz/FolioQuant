@@ -101,9 +101,9 @@ class MetricsService:
         self.use_dynamic_scaling = use_dynamic_scaling
         self.log_metrics = log_metrics
         self.trading_fee_bps = Decimal(str(trading_fee_bps))
-        self.signal_threshold = Decimal(str(signal_threshold))
+        self._signal_threshold = Decimal(str(signal_threshold))
         self.min_return_std_epsilon = Decimal(str(min_return_std_epsilon))
-        self.hysteresis_band = self.signal_threshold * Decimal('0.5')
+        self.hysteresis_band = self._signal_threshold * Decimal('0.5')
         self.last_volatility: Optional[Decimal] = None
         # Last computed per-period (unannualized) mean and std for diagnostics
         self.last_period_mean_return: Optional[Decimal] = None
@@ -144,6 +144,15 @@ class MetricsService:
             f"MetricsService initialized: window_size={window_size}, "
             f"risk_free_rate={risk_free_rate}, fee_bps={trading_fee_bps}, threshold={signal_threshold}"
         )
+
+    @property
+    def signal_threshold(self) -> Decimal:
+        return self._signal_threshold
+
+    @signal_threshold.setter
+    def signal_threshold(self, value: Decimal):
+        self._signal_threshold = Decimal(str(value))
+        self.hysteresis_band = self._signal_threshold * Decimal('0.5')
     
     async def on_signal_update(self, signal: OFISignal) -> None:
         """
@@ -227,74 +236,78 @@ class MetricsService:
                 self.correct_predictions += 1
     
     def _evaluate_trade(self, signal: OFISignal) -> None:
-        """
-        Evaluate if a trade should be executed using a 3-state (Long/Flat/Short)
-        transition model with hysteresis to prevent microstructure whipsawing.
-        """
         if len(self.signal_history) < 2:
             return
             
-        current_ofi = signal.ofi_value
-        current_price = signal.mid_price
-        timestamp = signal.timestamp
+        prev_data = self.signal_history[-2]
+        curr_data = self.signal_history[-1]
         
-        # 1. Define distinct entry and exit boundaries.
-        # Example: If signal_threshold is 0.4 and hysteresis_band is 0.2
-        # We enter at > 0.4, but we exit (flatten) when it decays below 0.2.
-        entry_threshold = self.signal_threshold
-        exit_threshold = max(Decimal('0.0'), self.signal_threshold - self.hysteresis_band)
+        prev_timestamp, prev_ofi, prev_price, prev_spread = prev_data
+        curr_timestamp, curr_ofi, curr_price, curr_spread = curr_data
         
-        target_pos = self.current_position
+        # Phase 3b: Latency Compensation
+        decision_ofi = prev_ofi if self.use_lagged_ofi else curr_ofi
         
-        # 2. State Machine Evaluation
-        if self.current_position == Decimal('0.0'):
-            # Currently Flat: Require a strong, unambiguous signal to enter
-            if current_ofi > entry_threshold:
-                target_pos = Decimal('1.0')
-            elif current_ofi < -entry_threshold:
-                target_pos = Decimal('-1.0')
-                
-        elif self.current_position == Decimal('1.0'):
-            # Currently Long: Flatten if signal degrades, reverse only if it violently flips
-            if current_ofi < -entry_threshold:
-                target_pos = Decimal('-1.0')  # Full reversal (rare shock)
-            elif current_ofi < exit_threshold:
-                target_pos = Decimal('0.0')   # Flatten to stop the bleeding
-                
-        elif self.current_position == Decimal('-1.0'):
-            # Currently Short: Flatten if signal degrades, reverse only if it violently flips
-            if current_ofi > entry_threshold:
-                target_pos = Decimal('1.0')   # Full reversal (rare shock)
-            elif current_ofi > -exit_threshold:
-                target_pos = Decimal('0.0')   # Flatten to stop the bleeding
+        target_pos = self._target_position(decision_ofi, self.current_position)
+        
+        # Phase 3a: Exit Logic Integration
+        if self.current_position != Decimal('0.0') and getattr(self, 'position_entry_info', None) is not None:
+            ticks_held = len(self.signal_history) - self.position_entry_info['entry_tick']
+            should_exit, exit_reason = self._should_exit_position(
+                entry_price=self.position_entry_info['entry_price'],
+                current_price=curr_price,
+                entry_signal=self.position_entry_info['entry_signal'],
+                current_signal=decision_ofi,
+                ticks_held=ticks_held
+            )
+            if should_exit:
+                target_pos = Decimal('0.0')
+                logger.debug(f"[EXIT] Triggered: {exit_reason}, held {ticks_held} ticks")
 
-        # 3. Execute trade only if the target position actually changed
-        if target_pos != self.current_position:
-            # Sizing will automatically be 1.0 for entries/exits, and 2.0 for full reversals
+        # 3. Execute trade only if the target position actually changed direction/size
+        # We ignore micro-changes in size for logging to avoid noise
+        direction_changed = (target_pos * self.current_position <= 0 and target_pos != self.current_position)
+        size_changed = False
+        if target_pos != 0 and self.current_position != 0:
+             size_changed = abs(target_pos - self.current_position) / abs(self.current_position) > Decimal('0.1')
+             
+        if direction_changed or size_changed or (target_pos == 0 and self.current_position != 0):
             trade_size = abs(target_pos - self.current_position)
             side = 'buy' if target_pos > self.current_position else 'sell'
             
             trade = {
-                'timestamp': timestamp,
+                'timestamp': signal.timestamp,
                 'side': side,
-                'price': float(current_price),
+                'price': float(curr_price),
                 'size': float(trade_size),
-                'ofi': float(current_ofi)
+                'ofi': float(curr_ofi)
             }
             
             trade_logger.info(
                 "trade side=%s size=%.4f price=%.2f ofi=%.4f from_pos=%.2f to_pos=%.2f",
                 side,
                 float(trade_size),
-                float(current_price),
-                float(current_ofi),
+                float(curr_price),
+                float(curr_ofi),
                 float(self.current_position),
                 float(target_pos),
             )
             
             self.recent_trades.append(trade)
+            
+            # Track new position entry
+            if target_pos != Decimal('0.0') and self.current_position == Decimal('0.0'):
+                self.position_entry_info = {
+                    'entry_price': curr_price,
+                    'entry_signal': decision_ofi,
+                    'entry_tick': len(self.signal_history)
+                }
+            # Clean up exited positions
+            elif target_pos == Decimal('0.0'):
+                self.position_entry_info = None
+                
             self.current_position = target_pos
-    
+
     def _update_returns(self) -> None:
         """
         Update cumulative returns based on OFI signal strategy.
@@ -489,12 +502,28 @@ class MetricsService:
         Lower volatility = larger position size (capture edge).
         """
         # Determine direction from signal (long/short/neutral)
-        if signal_value > self.signal_threshold:
-            direction = Decimal('1.0')  # Long
-        elif signal_value < -self.signal_threshold:
-            direction = Decimal('-1.0')  # Short
-        else:
-            return current_pos  # No signal change
+        entry_threshold = self.signal_threshold
+        exit_threshold = max(Decimal('0.0'), self.signal_threshold - self.hysteresis_band)
+        
+        current_dir = Decimal('0.0')
+        if current_pos > 0: current_dir = Decimal('1.0')
+        elif current_pos < 0: current_dir = Decimal('-1.0')
+        
+        direction = current_dir
+        if current_dir == Decimal('0.0'):
+            if signal_value > entry_threshold: direction = Decimal('1.0')
+            elif signal_value < -entry_threshold: direction = Decimal('-1.0')
+        elif current_dir == Decimal('1.0'):
+            if signal_value < -entry_threshold: direction = Decimal('-1.0')
+            # Let Phase 3a handle the flattening:
+            # elif signal_value < exit_threshold: direction = Decimal('0.0')
+        elif current_dir == Decimal('-1.0'):
+            if signal_value > entry_threshold: direction = Decimal('1.0')
+            # Let Phase 3a handle the flattening:
+            # elif signal_value > -exit_threshold: direction = Decimal('0.0')
+        
+        if direction == Decimal('0.0'):
+            return Decimal('0.0')
         
         # Phase 3c: Dynamic position sizing
         if self.use_dynamic_sizing and self.last_volatility is not None and self.last_volatility > 0:
@@ -544,18 +573,20 @@ class MetricsService:
         if entry_price <= 0 or current_price <= 0:
             return False, "invalid_prices"
         
-        current_return = (current_price - entry_price) / entry_price
+        price_return = (current_price - entry_price) / entry_price
+        direction = Decimal('1.0') if entry_signal > 0 else Decimal('-1.0')
+        position_return = price_return * direction
         
         # Condition 1: Stop-loss at -5% drawdown
         # This bounds maximum loss per trade and prevents spiral into deeper loss
         STOP_LOSS_THRESHOLD = Decimal('-0.05')
-        if current_return < STOP_LOSS_THRESHOLD:
+        if position_return < STOP_LOSS_THRESHOLD:
             return True, "stop_loss"
         
         # Condition 2: Profit-taking at +2% gain
         # Lock in wins to avoid giving back edge
         PROFIT_TARGET = Decimal('0.02')
-        if current_return > PROFIT_TARGET:
+        if position_return > PROFIT_TARGET:
             return True, "profit_taking"
         
         # Condition 3: Signal reversal with strong conviction
@@ -634,8 +665,15 @@ class MetricsService:
                         logger.debug(f"[EXIT] Triggered: {exit_reason}, held {ticks_held} ticks")
             
             # Calculate costs and returns
-            cost_return = self._calculate_trade_cost(current_pos, target_pos, curr_spread, curr_price)
-            gross_return = target_pos * price_return
+            
+            # Phase 3c fix: don't pay 1 bps fee just because volatility scaled position by 0.01
+            # Instead, pretend flat rate size for cost calculating OR simply track actual size turnover
+            if target_pos * current_pos <= 0 or current_pos == 0:
+                cost_return = self._calculate_trade_cost(current_pos, target_pos, curr_spread, curr_price)
+            else:
+                cost_return = Decimal('0.0')
+
+            gross_return = current_pos * price_return
             net_return = gross_return - cost_return
 
             results.append({

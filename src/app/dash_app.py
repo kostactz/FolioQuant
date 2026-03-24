@@ -572,7 +572,7 @@ async def start_websocket_connection(product_id: str, ofi_window: int, port: int
         # Start WebSocket Server
         # Start WebSocket Server
         # Enable address and port reuse to handle restarts gracefully
-        serve_kwargs = {"reuse_address": True}
+        serve_kwargs = {"reuse_address": True, "ping_interval": None, "ping_timeout": None}
         if hasattr(socket, "SO_REUSEPORT"):
             serve_kwargs["reuse_port"] = True
             

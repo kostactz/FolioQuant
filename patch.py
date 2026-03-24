@@ -1,18 +1,25 @@
 import re
 
-with open('src/app/assets/dash_clientside.js', 'r') as f:
-    content = f.read()
+with open("src/services/metrics_service.py", "r") as f:
+    text = f.read()
 
-def patch_func(func_name, return_val, content):
-    pattern = r'(' + func_name + r':\s*function\s*\([^)]*\)\s*\{)(?!\s*if \(Date\.now)'
-    replacement = r'\1\n        if (Date.now() - window.__folioquant_mount_time < 1500) return ' + return_val + r';'
-    return re.sub(pattern, replacement, content)
+# Replace direct assignment in __init__
+text = text.replace("self.signal_threshold = Decimal(str(signal_threshold))", "self._signal_threshold = Decimal(str(signal_threshold))")
+text = text.replace("self.hysteresis_band = self.signal_threshold * Decimal('0.5')", "self.hysteresis_band = self._signal_threshold * Decimal('0.5')")
 
-content = patch_func('update_depth_chart', 'window.dash_clientside.no_update', content)
-content = patch_func('update_analyst_metrics', 'Array(5).fill(window.dash_clientside.no_update)', content)
-content = patch_func('update_ofi_chart', 'window.dash_clientside.no_update', content)
-content = patch_func('update_metrics_chart', 'window.dash_clientside.no_update', content)
-content = patch_func('update_execution_chart', 'window.dash_clientside.no_update', content)
+# Add property
+prop_code = """
+    @property
+    def signal_threshold(self) -> Decimal:
+        return self._signal_threshold
 
-with open('src/app/assets/dash_clientside.js', 'w') as f:
-    f.write(content)
+    @signal_threshold.setter
+    def signal_threshold(self, value: Decimal):
+        self._signal_threshold = Decimal(str(value))
+        self.hysteresis_band = self._signal_threshold * Decimal('0.5')
+"""
+# Insert property after __init__
+text = re.sub(r'(def __init__.*?\n(?: {4}.*?\n)*)', r'\1' + prop_code, text, count=1)
+
+with open("src/services/metrics_service.py", "w") as f:
+    f.write(text)
