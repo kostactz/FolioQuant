@@ -19,6 +19,7 @@ from dash_extensions import WebSocket
 import dash_bootstrap_components as dbc
 from dash import dash_table
 from .dash_callbacks import initialize_ofi_chart, initialize_metrics_chart
+from .dash_state import state
 import plotly.graph_objects as go
 
 
@@ -319,9 +320,25 @@ def create_execution_chart(trades=None):
     fig.add_trace(go.Scatter(
         x=[], y=[],
         name='Mid Price',
-        mode='lines',
-        line=dict(color='#3498db', width=2),
-        hovertemplate='Price: $%{y:,.2f}<extra></extra>'
+        mode='lines+markers',
+        line=dict(color='rgba(200, 200, 200, 0.4)', width=2),
+        marker=dict(
+            color=[],
+            colorscale='RdBu',
+            cmin=-state.ofi_scale,
+            cmax=state.ofi_scale,
+            showscale=True,
+            size=6,
+            colorbar=dict(
+                title="OFI",
+                thickness=10,
+                len=0.5,
+                y=0.5,
+                yanchor="middle",
+                outlinewidth=0,
+            )
+        ),
+        hovertemplate='Price: $%{y:,.2f}<br>OFI: %{marker.color:,.2f}<extra></extra>'
     ))
     
     # Trace 1: Buys (Green Triangles)
@@ -556,6 +573,23 @@ def create_sidebar():
                     className="mb-3"
                 ),
                 html.Div(id='ofi-window-display', className='text-center small text-muted mb-3')
+            ]),
+
+            # OFI Scale slider
+            html.Div([
+                html.Label([
+                    "OFI Color Scale ",
+                    html.I(className="bi bi-question-circle tooltip-icon",
+                           title="Maximum absolute value for the execution chart OFI color coding")
+                ], className="fw-bold"),
+                dcc.Slider(
+                    id='ofi-scale-slider',
+                    min=1, max=50, step=1, value=15,
+                    marks={1: '1', 15: '15', 50: '50'},
+                    tooltip={'placement': 'bottom', 'always_visible': True},
+                    className="mb-3"
+                ),
+                html.Div(id='ofi-scale-display', className='text-center small text-muted mb-3')
             ]),
 
             # Signal Threshold slider

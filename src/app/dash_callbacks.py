@@ -1005,6 +1005,7 @@ def update_execution_chart_data(n):
     latest_ofi = state.ofi_history[-1]
     timestamp = latest_ofi['timestamp']
     price = latest_ofi['mid_price']
+    ofi_val = latest_ofi.get('ofi', 0)
     
     # Helper to format point for extendData
     # x and y must be lists of lists, one inner list per trace being updated
@@ -1012,6 +1013,7 @@ def update_execution_chart_data(n):
     # Always update price (Trace 0)
     x_data = [[timestamp]]
     y_data = [[price]]
+    color_data = [[ofi_val]]
     indices = [0]
     
     # Check for recent trades matching this timestamp
@@ -1049,15 +1051,17 @@ def update_execution_chart_data(n):
     if new_buys_x:
         x_data.append(new_buys_x)
         y_data.append(new_buys_y)
+        color_data.append([])
         indices.append(1)
         
     # Add Sells (Trace 2)
     if new_sells_x:
         x_data.append(new_sells_x)
         y_data.append(new_sells_y)
+        color_data.append([])
         indices.append(2)
         
-    return {'x': x_data, 'y': y_data}, indices, state.chart_history
+    return {'x': x_data, 'y': y_data, 'marker.color': color_data}, indices, state.chart_history
 
 
 
@@ -1121,9 +1125,10 @@ def toggle_streaming(play_clicks, pause_clicks):
 #     Input('chart-history-slider', 'value'),
 #     Input('book-depth-slider', 'value'),
 #     Input('signal-threshold-slider', 'value'),
+#     Input('ofi-scale-slider', 'value'),
 #     prevent_initial_call=False
 # )
-def update_configuration(product, ofi_window, chart_history, book_depth, signal_threshold):
+def update_configuration(product, ofi_window, chart_history, book_depth, signal_threshold, ofi_scale=15):
     """
     Update global configuration when sliders/selectors change.
     
@@ -1136,9 +1141,10 @@ def update_configuration(product, ofi_window, chart_history, book_depth, signal_
         chart_history: Number of points to keep in charts
         book_depth: Number of price levels to display
         signal_threshold: Signal threshold trigger value
+        ofi_scale: Extent of OFI color scale
     
     Returns:
-        Tuple of (product_value, ofi_display, history_display, depth_display, threshold_display)
+        Tuple of (product_value, ofi_display, history_display, depth_display, threshold_display, scale_display)
     """
     
     # Update global state
@@ -1147,6 +1153,7 @@ def update_configuration(product, ofi_window, chart_history, book_depth, signal_
     state.chart_history = chart_history
     state.book_depth = book_depth
     state.signal_threshold = float(signal_threshold)
+    state.ofi_scale = ofi_scale
     
     # Update metrics service if active (dynamic adjustment)
     if state.metrics_service:
@@ -1170,9 +1177,16 @@ def update_configuration(product, ofi_window, chart_history, book_depth, signal_
     history_text = f"Displaying: {chart_history} points"
     depth_text = f"Showing: {book_depth} levels"
     threshold_text = f"Signal: +/- {signal_threshold}"
+    scale_text = f"Scale: [-{ofi_scale}, {ofi_scale}]"
     
-    from dash import no_update
-    return no_update, ofi_text, history_text, depth_text, threshold_text
+    from dash import no_update, Patch
+    
+    # Patch the execution chart to update the continuous marker colorscale
+    execution_patch = Patch()
+    execution_patch['data'][0]['marker']['cmin'] = -ofi_scale
+    execution_patch['data'][0]['marker']['cmax'] = ofi_scale
+    
+    return no_update, ofi_text, history_text, depth_text, threshold_text, scale_text, execution_patch
 
 
 # Old update_analyst_view() and update_order_book_tables() functions removed
@@ -1416,11 +1430,14 @@ def register_callbacks(app):
         Output('chart-history-display', 'children'),
         Output('book-depth-display', 'children'),
         Output('signal-threshold-display', 'children'),
+        Output('ofi-scale-display', 'children'),
+        Output('execution-chart', 'figure'),
         Input('product-selector', 'value'),
         Input('ofi-window-slider', 'value'),
         Input('chart-history-slider', 'value'),
         Input('book-depth-slider', 'value'),
         Input('signal-threshold-slider', 'value'),
+        Input('ofi-scale-slider', 'value'),
         prevent_initial_call=False
     )(update_configuration)
 
