@@ -30,7 +30,7 @@ class TestCoinbaseWebSocketClientBasic:
         client = CoinbaseWebSocketClient(
             ws_url="wss://custom.url",
             product_ids=["ETH-USD", "BTC-USD"],
-            channels=["level2"],
+            channels=["level2_batch"],
             subscription_timeout=3.0,
             reconnect_delay=2.0,
             max_reconnect_delay=120.0,
@@ -39,7 +39,7 @@ class TestCoinbaseWebSocketClientBasic:
         
         assert client.ws_url == "wss://custom.url"
         assert client.product_ids == ["ETH-USD", "BTC-USD"]
-        assert client.channels == ["level2"]
+        assert client.channels == ["level2_batch"]
         assert client.subscription_timeout == 3.0
         assert client.initial_reconnect_delay == 2.0
         assert client.max_reconnect_delay == 120.0
