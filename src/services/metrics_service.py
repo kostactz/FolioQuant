@@ -38,6 +38,7 @@ from ..models.signals import OFISignal, MetricsSnapshot
 
 # Configure logging
 logger = logging.getLogger(__name__)
+trade_logger = logging.getLogger("folio.trades")
 
 
 class MetricsService:
@@ -242,7 +243,15 @@ class MetricsService:
                 'size': float(size),
                 'ofi': float(current_ofi)
             }
-            logger.warning(f"[EXECUTION] Trade Executed: {side.upper()} {size:.2f} @ {current_price} | OFI={current_ofi:.2f}")
+            trade_logger.info(
+                "trade side=%s size=%.4f price=%.2f ofi=%.4f from_pos=%.2f to_pos=%.2f",
+                side,
+                float(size),
+                float(current_price),
+                float(current_ofi),
+                float(self.current_position),
+                float(target_pos),
+            )
             self.recent_trades.append(trade)
             self.current_position = target_pos
     
@@ -342,8 +351,10 @@ class MetricsService:
             bucketed_returns[bucket_ts] += ret
 
         # 2. Calculate Sharpe on buckets
-        # We need at least 2 buckets to calculate std dev
-        if len(bucketed_returns) < 2:
+        # Require minimum 10 buckets (~10 seconds) before reporting Sharpe
+        # This prevents extreme ratios from early-trade volatility collapse
+        MIN_SHARPE_BUCKETS = 10
+        if len(bucketed_returns) < MIN_SHARPE_BUCKETS:
             return None
             
         returns_list = [float(r) for r in bucketed_returns.values()]
@@ -354,7 +365,10 @@ class MetricsService:
         except statistics.StatisticsError:
             return None
 
-        if std_return < self.min_return_std_epsilon:
+        # Require reasonable volatility threshold to avoid extreme Sharpe from tiny stdev
+        # Use a data-driven floor: if stdev is < 1e-5, likely unreliable early-stage data
+        VOLATILITY_FLOOR = Decimal('1e-5')
+        if std_return < VOLATILITY_FLOOR:
             return None
 
         # 3. Annualize with configurable logic
@@ -547,7 +561,9 @@ class MetricsService:
         based on the actual price changes that occurred.
         
         Returns:
-            Tuple of (win_loss_ratio, avg_win, avg_loss), or (None, None, None)
+            Tuple of (win_loss_ratio, avg_win, avg_loss), or (None, None, None) if insufficient data
+        
+        Note: Returns None if insufficient winning/losing periods (avoid false ratios from imbalanced data)
         """
         strategy_returns = self._compute_strategy_returns()
         if not strategy_returns:
@@ -563,7 +579,9 @@ class MetricsService:
             elif strategy_return < 0:
                 losing_magnitudes.append(abs(strategy_return))
         
-        if not winning_magnitudes or not losing_magnitudes:
+        # Only compute ratio if we have meaningful samples of both wins and losses
+        # Require at least 2 of each to avoid spurious ratios from single-trade or early-stage data
+        if len(winning_magnitudes) < 2 or len(losing_magnitudes) < 2:
             return None, None, None
         
         avg_win = Decimal(str(statistics.mean([float(w) for w in winning_magnitudes])))

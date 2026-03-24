@@ -651,7 +651,6 @@ def _generate_diagnostics_charts():
             ))
         except Exception as e:
             # Fallback if numpy fails or not enough data
-            print(f"Regression failed: {e}")
             pass
             
         scatter_fig.update_layout(
@@ -1112,10 +1111,6 @@ def update_execution_chart_data(n):
     timestamp = latest_ofi['timestamp']
     price = latest_ofi['mid_price']
     
-    # Debug logging
-    import logging
-    logger = logging.getLogger(__name__)
-    
     # Helper to format point for extendData
     # x and y must be lists of lists, one inner list per trace being updated
     
@@ -1134,17 +1129,6 @@ def update_execution_chart_data(n):
     
     # Sort trades by timestamp
     trades = sorted(state.recent_trades, key=lambda t: t['timestamp'])
-    
-    if trades:
-        logger.warning(f"[CHART] Found {len(trades)} trades. Last viz ts: {last_ts}. Newest trade ts: {trades[-1]['timestamp']}")
-    else:
-        # Only log periodically to avoid spam if truly empty
-        if n % 20 == 0:
-            logger.warning("[CHART] No trades in state.recent_trades")
-            
-    if trades:
-        logger.warning(f"[CHART] Callback Trade TS type: {type(trades[0]['timestamp'])} Value: {trades[0]['timestamp']}")
-        logger.warning(f"[CHART] Last Viz TS type: {type(last_ts)} Value: {last_ts}")
     
     for t in trades:
         # If we haven't seen this trade, or if it's new
@@ -1177,9 +1161,6 @@ def update_execution_chart_data(n):
         x_data.append(new_sells_x)
         y_data.append(new_sells_y)
         indices.append(2)
-        
-    if len(indices) > 1:
-        logger.info(f"[CHART] Extending data. Indices: {indices}. Points: {[len(x) for x in x_data]}")
         
     return {'x': x_data, 'y': y_data}, indices, state.chart_history
 

@@ -19,9 +19,6 @@ from dash_extensions import WebSocket
 import dash_bootstrap_components as dbc
 from dash import dash_table
 import plotly.graph_objects as go
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def _help_icon(tooltip_text):
@@ -314,7 +311,6 @@ def create_execution_chart(trades=None):
     """
     # Create initial figure
     fig = go.Figure()
-    logger.info("[LAYOUT] Creating execution chart. Initializing traces.")
     
     # Trace 0: Mid Price (Empty initially, or could pass price history too)
     # We rely on extendData for price updates, so start empty.
@@ -360,13 +356,6 @@ def create_execution_chart(trades=None):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
-    logger.warning(f"[LAYOUT] Execution chart created with {len(fig.data)} traces. Initial trades: {len(trades) if trades else 0}")
-    if trades:
-        logger.warning(f"[LAYOUT] First trade TS type: {type(trades[0]['timestamp'])} Value: {trades[0]['timestamp']}")
-        import sys
-        print(f"DEBUG: [LAYOUT] First trade raw: {trades[0]}", file=sys.stderr)
-        logger.warning(f"[LAYOUT] First trade raw: {trades[0]}")
-
     return dbc.Card([
         dbc.CardHeader([
             html.H5([

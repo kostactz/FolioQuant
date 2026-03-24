@@ -96,15 +96,22 @@ logging.getLogger('werkzeug').setLevel(logging.ERROR)
 # Suppress dash request logs and startup messages
 logging.getLogger('dash').setLevel(logging.ERROR)
 logging.getLogger('dash.dash').setLevel(logging.ERROR)
+logging.getLogger('dash').disabled = True
+logging.getLogger('dash.dash').disabled = True
 
 # Configure specific loggers
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # Keep our app logs at INFO
+logger.setLevel(logging.WARNING)
+indicator_logger = logging.getLogger("folio.indicators")
+trade_logger = logging.getLogger("folio.trades")
+indicator_logger.setLevel(logging.INFO)
+trade_logger.setLevel(logging.INFO)
 
 
 # Broadcast cadence contract
 FAST_BROADCAST_INTERVAL = 0.1
 ANALYTICS_BROADCAST_INTERVAL = 0.5
+INDICATOR_LOG_INTERVAL = 2.0
 
 
 # Phase 0 audit stream
@@ -112,11 +119,11 @@ AUDIT_LOGGER = MetricsAuditLogger(
     str(Path(__file__).resolve().parents[2] / "logs" / "metrics_audit.jsonl")
 )
 
-# Keep websocket client at INFO for connection issues
-logging.getLogger('src.clients.coinbase_client').setLevel(logging.INFO)
+# Keep websocket client at WARNING (surface only reconnect/errors)
+logging.getLogger('src.clients.coinbase_client').setLevel(logging.WARNING)
 
-# Keep book manager at WARNING (only show issues)
-logging.getLogger('src.services.book_manager').setLevel(logging.WARNING)
+# Keep book manager at ERROR (suppress high-frequency sequence-gap warnings)
+logging.getLogger('src.services.book_manager').setLevel(logging.ERROR)
 
 # Keep message queue quiet
 logging.getLogger('src.clients.message_queue').setLevel(logging.WARNING)
@@ -124,6 +131,8 @@ logging.getLogger('src.clients.message_queue').setLevel(logging.WARNING)
 # Keep OFI and metrics services quiet unless there's an issue
 logging.getLogger('src.services.ofi_calculator').setLevel(logging.WARNING)
 logging.getLogger('src.services.metrics_service').setLevel(logging.WARNING)
+logging.getLogger('src.app.dash_layout').setLevel(logging.ERROR)
+logging.getLogger('src.app.dash_callbacks').setLevel(logging.ERROR)
 
 
 # Global connection management
@@ -245,6 +254,33 @@ async def process_websocket_messages(
                     # Update trades
                     state.recent_trades = snapshot.recent_trades or []
 
+                    # Throttled indicator log for strategy debugging
+                    nonlocal last_indicator_log
+                    now = time.time()
+                    if now - last_indicator_log >= INDICATOR_LOG_INTERVAL:
+                        latest_trade = state.recent_trades[-1] if state.recent_trades else None
+                        trade_side = latest_trade.get('side') if latest_trade else None
+                        trade_price = latest_trade.get('price') if latest_trade else None
+
+                        indicator_logger.info(
+                            "indicators product=%s seq=%s ofi=%.4f mid=%.2f sharpe=%s hit=%s winloss=%s drawdown=%s ic=%s trades=%d last_trade=%s@%s mps=%.1f latency_ms=%s",
+                            state.product_id,
+                            state.last_sequence,
+                            float(signal.ofi_value),
+                            float(signal.mid_price) if signal.mid_price is not None else 0.0,
+                            f"{state.sharpe_ratio:.4f}" if state.sharpe_ratio is not None else "na",
+                            f"{state.hit_rate:.2f}" if state.hit_rate is not None else "na",
+                            f"{state.win_loss_ratio:.3f}" if state.win_loss_ratio is not None else "na",
+                            f"{state.max_drawdown:.3f}" if state.max_drawdown is not None else "na",
+                            f"{state.information_coefficient:.4f}" if state.information_coefficient is not None else "na",
+                            len(state.recent_trades),
+                            trade_side or "na",
+                            f"{trade_price:.2f}" if trade_price is not None else "na",
+                            state.messages_per_second,
+                            f"{state.avg_latency_ms:.2f}" if state.avg_latency_ms is not None else "na",
+                        )
+                        last_indicator_log = now
+
                     AUDIT_LOGGER.append({
                         "schema_version": state.schema_version,
                         "message_id": state.message_id,
@@ -276,6 +312,7 @@ async def process_websocket_messages(
     # Performance throttling state
     last_metrics_calc = 0.0
     METRICS_CALC_INTERVAL = 0.5  # Calculate expensive metrics at most every 500ms
+    last_indicator_log = 0.0
     state.fast_broadcast_interval_sec = FAST_BROADCAST_INTERVAL
     state.analytics_broadcast_interval_sec = ANALYTICS_BROADCAST_INTERVAL
     
@@ -409,8 +446,15 @@ def _update_book_state():
     
     Extracts relevant data from OrderBook instance and updates
     the global state dict for callbacks to read.
+    
+    Defends against None book or missing attributes via defensive checks.
     """
-    if not state.book:
+    # Defensive: check book exists and has required attributes
+    if not state.book or not hasattr(state.book, 'bids') or not hasattr(state.book, 'asks'):
+        return
+    
+    # Extra guard: ensure book.bids and book.asks are not None
+    if state.book.bids is None or state.book.asks is None:
         return
     
     # Update BBO
@@ -430,20 +474,28 @@ def _update_book_state():
     
     # Update depth for visualization (use dynamic book_depth setting)
     # Bids: descending price, cumulative from best bid
-    bid_cumulative = []
-    cumsum = 0
-    for price, size in list(state.book.bids.items())[:state.book_depth]:
-        cumsum += float(size)
-        bid_cumulative.append((float(price), cumsum))
-    state.bid_depth = bid_cumulative
+    try:
+        bid_cumulative = []
+        cumsum = 0
+        for price, size in list(state.book.bids.items())[:state.book_depth]:
+            cumsum += float(size)
+            bid_cumulative.append((float(price), cumsum))
+        state.bid_depth = bid_cumulative
+    except (AttributeError, TypeError) as e:
+        logger.warning(f"[STATE] Error updating bid depth: {e}")
+        state.bid_depth = []
     
     # Asks: ascending price, cumulative from best ask
-    ask_cumulative = []
-    cumsum = 0
-    for price, size in list(state.book.asks.items())[:state.book_depth]:
-        cumsum += float(size)
-        ask_cumulative.append((float(price), cumsum))
-    state.ask_depth = ask_cumulative
+    try:
+        ask_cumulative = []
+        cumsum = 0
+        for price, size in list(state.book.asks.items())[:state.book_depth]:
+            cumsum += float(size)
+            ask_cumulative.append((float(price), cumsum))
+        state.ask_depth = ask_cumulative
+    except (AttributeError, TypeError) as e:
+        logger.warning(f"[STATE] Error updating ask depth: {e}")
+        state.ask_depth = []
 
 
 async def start_websocket_connection(product_id: str, ofi_window: int, port: int = 5000):
@@ -467,7 +519,10 @@ async def start_websocket_connection(product_id: str, ofi_window: int, port: int
     message_queue = AsyncMessageQueue(max_size=1000)
     
     # Create services
-    book_manager = BookManager(product_id=product_id)
+    book_manager = BookManager(
+        product_id=product_id,
+        log_sequence_gaps=False
+    )
     ofi_calculator = OFICalculator(window_size=ofi_window)
     metrics_service = MetricsService(
         window_size=1000,
@@ -595,7 +650,7 @@ def stop_background_websocket():
                 logger.error(f"[MAIN] Error stopping connection: {e}")
                 state.error_message = f"Stop error: {str(e)}"
         else:
-            logger.warning("[MAIN] No active connection to stop")
+            logger.debug("[MAIN] No active connection to stop")
 
 
 # ============================================================================
@@ -635,7 +690,6 @@ def create_app(ws_port=5000):
     # Set layout FIRST (from dash_layout.py)
     # Use wrapper function to ensure visibility of layout generation
     def layout_wrapper():
-        print("DEBUG: [APP] layout_wrapper called. Regenerating layout...")
         return create_layout(ws_port=ws_port, state=state)
         
     app.layout = layout_wrapper
