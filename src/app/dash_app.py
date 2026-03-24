@@ -263,13 +263,15 @@ async def process_websocket_messages(
                         trade_price = latest_trade.get('price') if latest_trade else None
 
                         indicator_logger.info(
-                            "indicators product=%s seq=%s ofi=%.4f mid=%.2f sharpe=%s hit=%s winloss=%s drawdown=%s ic=%s trades=%d last_trade=%s@%s mps=%.1f latency_ms=%s",
+                            "indicators product=%s seq=%s ofi=%.4f mid=%.2f sharpe=%s hit=%s mu=%s sigma=%s winloss=%s drawdown=%s ic=%s trades=%d last_trade=%s@%s mps=%.1f latency_ms=%s",
                             state.product_id,
                             state.last_sequence,
                             float(signal.ofi_value),
                             float(signal.mid_price) if signal.mid_price is not None else 0.0,
                             f"{state.sharpe_ratio:.4f}" if state.sharpe_ratio is not None else "na",
                             f"{state.hit_rate:.2f}" if state.hit_rate is not None else "na",
+                            f"{snapshot.per_period_mu:.6e}" if snapshot.per_period_mu is not None else "na",
+                            f"{snapshot.per_period_sigma:.6e}" if snapshot.per_period_sigma is not None else "na",
                             f"{state.win_loss_ratio:.3f}" if state.win_loss_ratio is not None else "na",
                             f"{state.max_drawdown:.3f}" if state.max_drawdown is not None else "na",
                             f"{state.information_coefficient:.4f}" if state.information_coefficient is not None else "na",
@@ -292,6 +294,8 @@ async def process_websocket_messages(
                         "mid_price": float(signal.mid_price) if signal.mid_price is not None else None,
                         "sharpe_ratio": state.sharpe_ratio,
                         "hit_rate": state.hit_rate,
+                        "per_period_mu": float(snapshot.per_period_mu) if snapshot.per_period_mu is not None else None,
+                        "per_period_sigma": float(snapshot.per_period_sigma) if snapshot.per_period_sigma is not None else None,
                         "drawdown": state.max_drawdown,
                         "win_loss_ratio": state.win_loss_ratio,
                         "correlation": state.price_correlation,

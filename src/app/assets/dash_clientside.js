@@ -5,6 +5,7 @@ if (!window.dash_clientside) {
 window.__folioquant_stream_state = window.__folioquant_stream_state || {
     lastOfiTs: null,
     lastMetricsTs: null,
+    lastExecTs: null,
 };
 
 window.dash_clientside.ws_clientside = {
@@ -133,6 +134,27 @@ window.dash_clientside.ws_clientside = {
                     return window.dash_clientside.no_update;
                 }
                 window.__folioquant_stream_state.lastMetricsTs = ts;
+                return payload;
+            }
+        } catch (e) { console.error(e); }
+        return window.dash_clientside.no_update;
+    },
+
+    update_execution_chart: function (msg) {
+        if (!msg || !msg.data) return window.dash_clientside.no_update;
+        try {
+            const data = JSON.parse(msg.data);
+            if (data.type === "metrics_update") {
+                const payload = data.trades;
+                if (!payload || !Array.isArray(payload) || payload.length < 1) {
+                    return window.dash_clientside.no_update;
+                }
+                const dataDict = payload[0] || {};
+                const ts = dataDict.x && dataDict.x[0] && dataDict.x[0][0] ? dataDict.x[0][0] : null;
+                if (!ts || ts === window.__folioquant_stream_state.lastExecTs) {
+                    return window.dash_clientside.no_update;
+                }
+                window.__folioquant_stream_state.lastExecTs = ts;
                 return payload;
             }
         } catch (e) { console.error(e); }

@@ -1489,11 +1489,15 @@ def register_callbacks(app):
     #     Input('chart-initialized', 'data')
     # )(initialize_execution_chart)
 
-    # ========== EXECUTION CHART STREAMING (Server-side) ==========
-    app.callback(
+    # ========== EXECUTION CHART STREAMING (Client-side for real-time) ==========
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace='ws_clientside',
+            function_name='update_execution_chart'
+        ),
         Output('execution-chart', 'extendData'),
-        Input('interval-slow', 'n_intervals')
-    )(update_execution_chart_data)
+        Input('ws', 'message')
+    )
 
     # ========== STREAMING CONTROL ==========
     app.callback(

@@ -316,6 +316,9 @@ class MetricsSnapshot:
     # Diagnostic Data
     scatter_data: Optional[List[Tuple[float, float]]] = field(default_factory=list)
     rolling_volatility: Optional[float] = None
+    # Raw per-period (unannualized) mean and std of returns for diagnostics
+    per_period_mu: Optional[Decimal] = None
+    per_period_sigma: Optional[Decimal] = None
     
     # Execution Tracking
     recent_trades: Optional[List[dict]] = field(default_factory=list)
@@ -345,6 +348,8 @@ class MetricsSnapshot:
             'ofi_std': float(self.ofi_std) if self.ofi_std else None,
             'ofi_min': float(self.ofi_min) if self.ofi_min else None,
             'ofi_max': float(self.ofi_max) if self.ofi_max else None,
+            'per_period_mu': float(self.per_period_mu) if self.per_period_mu else None,
+            'per_period_sigma': float(self.per_period_sigma) if self.per_period_sigma else None,
         }
     
     def is_performing_well(self, sharpe_threshold: float = 1.0, hit_rate_threshold: float = 55.0) -> bool:

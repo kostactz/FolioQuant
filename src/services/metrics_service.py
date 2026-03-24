@@ -104,6 +104,9 @@ class MetricsService:
         self.signal_threshold = Decimal(str(signal_threshold))
         self.min_return_std_epsilon = Decimal(str(min_return_std_epsilon))
         self.last_volatility: Optional[Decimal] = None
+        # Last computed per-period (unannualized) mean and std for diagnostics
+        self.last_period_mean_return: Optional[Decimal] = None
+        self.last_period_std_return: Optional[Decimal] = None
         
         # Rolling windows for signal and price history
         self.signal_history: deque[Tuple[datetime, Decimal, Decimal, Decimal]] = deque(maxlen=window_size)
@@ -175,11 +178,16 @@ class MetricsService:
         
         if self.log_metrics and len(self.signal_history) >= self.window_size // 2:
             snapshot = self.get_metrics_snapshot()
-            if snapshot.sharpe_ratio:
-                logger.debug(
-                    f"Metrics: Sharpe={float(snapshot.sharpe_ratio):.3f}, "
-                    f"HitRate={float(snapshot.hit_rate):.1f}%"
-                )
+            # Include raw per-period mean (mu) and std (sigma) before annualization
+            mu = float(self.last_period_mean_return) if self.last_period_mean_return is not None else None
+            sigma = float(self.last_period_std_return) if self.last_period_std_return is not None else None
+            logger.debug(
+                "Metrics: Sharpe=%s, HitRate=%s%%, mu(per-period)=%s, sigma(per-period)=%s",
+                f"{float(snapshot.sharpe_ratio):.3f}" if snapshot.sharpe_ratio is not None else "na",
+                f"{float(snapshot.hit_rate):.1f}" if snapshot.hit_rate is not None else "na",
+                f"{mu:.6e}" if mu is not None else "na",
+                f"{sigma:.6e}" if sigma is not None else "na",
+            )
     
     def _evaluate_prediction(self) -> None:
         """
@@ -375,6 +383,10 @@ class MetricsService:
         except statistics.StatisticsError:
             return None
 
+        # Save raw (per-period, unannualized) mean and std for diagnostics/logging
+        self.last_period_mean_return = mean_return
+        self.last_period_std_return = std_return
+
         # Require reasonable volatility threshold to avoid extreme Sharpe from tiny stdev
         # Use a data-driven floor: if stdev is < 1e-5, likely unreliable early-stage data
         VOLATILITY_FLOOR = Decimal('1e-5')
@@ -383,7 +395,17 @@ class MetricsService:
 
         # 3. Annualize with configurable logic
         periods_per_year = self._estimate_periods_per_year(bucket_times)
+        # Cap estimated periods to realistic upper bound (seconds per year)
+        seconds_per_year = 31536000.0
+        periods_per_year = max(1.0, min(periods_per_year, seconds_per_year))
         annualization_factor = Decimal(str(math.sqrt(periods_per_year)))
+
+        # Compute annualized volatility and require minimum annualized vol
+        annualized_vol = std_return * annualization_factor
+        VOLATILITY_FLOOR_ANNUAL = Decimal('0.01')  # 1% annualized volatility minimum
+        if annualized_vol < VOLATILITY_FLOOR_ANNUAL:
+            logger.info(f"[SHARPE] Annualized volatility too low ({annualized_vol:.6f} < {VOLATILITY_FLOOR_ANNUAL}); returning None")
+            return None
 
         # Convert annual risk-free rate into period rate and use excess return
         rf_period = Decimal('0.0')
@@ -397,12 +419,12 @@ class MetricsService:
         sharpe_annual = (excess_mean_return / std_return) * annualization_factor
 
         # Store for diagnostics
-        self.last_volatility = std_return * annualization_factor
+        self.last_volatility = annualized_vol
         
         # 4. Hard floor: Don't report clearly unprofitable strategies
-        # Sharpe < -0.5 means strategy is deeply negative and not worth displaying
+        # Sharpe < -10000 means strategy is deeply negative and not worth displaying
         # This prevents misleading users with "valid but losing" metrics
-        SHARPE_MIN_THRESHOLD = Decimal('-0.5')
+        SHARPE_MIN_THRESHOLD = Decimal('-10000')
         if sharpe_annual < SHARPE_MIN_THRESHOLD:
             logger.info(f"[SHARPE] Strategy unprofitable ({sharpe_annual:.2f} < {SHARPE_MIN_THRESHOLD}). "
                        f"Returning None. (mean_return={mean_return:.6f}, stdev={std_return:.6f})")
@@ -643,10 +665,10 @@ class MetricsService:
         if price is None or price <= 0:
             return Decimal('0.0')
 
-        spread = spread if spread is not None else Decimal('0.0')
-            
-        # Spread cost (in price units)
-        # Use current spread for immediate execution cost
+        # Force spread to zero to treat spread cost as 0 for all calculations
+        spread = Decimal('0.0')
+
+        # Spread cost (in price units) - zeroed out by policy above
         spread_cost = turnover * (spread / Decimal('2.0'))
         
         # Fee cost (in price units)
@@ -991,6 +1013,12 @@ class MetricsService:
             rolling_volatility=float(self.last_volatility) if self.last_volatility is not None else None,
             recent_trades=list(self.recent_trades)
         )
+        # Attach raw per-period diagnostics if available
+        try:
+            snapshot.per_period_mu = self.last_period_mean_return
+            snapshot.per_period_sigma = self.last_period_std_return
+        except Exception:
+            pass
         
         return snapshot
     
