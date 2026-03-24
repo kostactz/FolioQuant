@@ -80,14 +80,12 @@ from ..services.ofi_calculator import OFICalculator
 from ..services.metrics_service import MetricsService
 from ..services.metrics_audit import MetricsAuditLogger
 from ..utils.time_utils import calculate_latency
+from ..utils.colored_logging import configure_colored_logging, ColorFormatter
 
 
-# Configure logging
-# Set root logger to WARNING to reduce noise
-logging.basicConfig(
-    level=logging.WARNING,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure colored console logging (root logger)
+# Keep root at WARNING to filter out DEBUG noise from other modules
+configure_colored_logging(level=logging.WARNING)
 
 # Configure specific loggers BEFORE importing Dash
 # Suppress werkzeug HTTP request logs (Flask development server)
@@ -101,10 +99,22 @@ logging.getLogger('dash.dash').disabled = True
 
 # Configure specific loggers
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 indicator_logger = logging.getLogger("folio.indicators")
 trade_logger = logging.getLogger("folio.trades")
+
+# Add explicit colored handlers to folio loggers so INFO is visible
+# even when root is at WARNING
+fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+handler = logging.StreamHandler()
+handler.setFormatter(ColorFormatter(fmt=fmt))
+handler.setLevel(logging.INFO)
+
+logger.addHandler(handler)
+
+indicator_logger.addHandler(handler)
 indicator_logger.setLevel(logging.INFO)
+trade_logger.addHandler(handler)
 trade_logger.setLevel(logging.INFO)
 
 
@@ -136,9 +146,8 @@ logging.getLogger('src.app.dash_callbacks').setLevel(logging.ERROR)
 
 
 # Global connection management
-_event_loop = None
-_connection_task = None
-_event_loop_lock = threading.Lock()
+# Moved to state.py to prevent parallel execution instances
+
 
 
 # ============================================================================
@@ -346,12 +355,12 @@ async def process_websocket_messages(
 
             # Wait for next message (with timeout to allow graceful shutdown)
             try:
-                start_time = datetime.now()
                 message = await asyncio.wait_for(
                     message_queue.get(),
                     timeout=5.0
                 )
                 receive_time = datetime.now()
+                start_time = receive_time
             except asyncio.TimeoutError:
                 # Don't log timeout - this is normal when idle
                 continue
@@ -604,34 +613,34 @@ def start_background_websocket(product_id: str = "BTC-USD", ofi_window: int = 10
         ofi_window: OFI calculation window size
         port: WebSocket server port
     """
-    global _event_loop, _connection_task
+    # global state._event_loop, state._connection_task
     
-    with _event_loop_lock:
+    with state._event_loop_lock:
         # Create event loop if it doesn't exist
-        if _event_loop is None:
-            _event_loop = asyncio.new_event_loop()
+        if state._event_loop is None:
+            state._event_loop = asyncio.new_event_loop()
             
             # Start thread to run the loop
             thread = threading.Thread(
                 target=run_async_loop,
-                args=(_event_loop,),
+                args=(state._event_loop,),
                 daemon=True,
                 name="WebSocketThread"
             )
             thread.start()
         
         # Cancel existing connection if any
-        if _connection_task is not None:
+        if state._connection_task is not None:
             try:
-                _connection_task.cancel()
+                state._connection_task.cancel()
                 logger.info("[MAIN] Cancelled previous connection")
             except Exception as e:
                 logger.warning(f"[MAIN] Error cancelling previous connection: {e}")
         
         # Schedule new WebSocket connection
-        _connection_task = asyncio.run_coroutine_threadsafe(
+        state._connection_task = asyncio.run_coroutine_threadsafe(
             start_websocket_connection(product_id, ofi_window, port),
-            _event_loop
+            state._event_loop
         )
 
 
@@ -641,12 +650,12 @@ def stop_background_websocket():
     
     Cancels the current connection task and resets state.
     """
-    global _connection_task
+    # global state._connection_task
     
-    with _event_loop_lock:
-        if _connection_task is not None:
+    with state._event_loop_lock:
+        if state._connection_task is not None:
             try:
-                _connection_task.cancel()
+                state._connection_task.cancel()
                 logger.info("[MAIN] Connection stopped")
                 state.connected = False
                 state.error_message = None
@@ -717,10 +726,24 @@ connected_clients = set()
 async def ws_handler(websocket):
     """Handle new WebSocket connections."""
     connected_clients.add(websocket)
+    import traceback
     try:
-        await websocket.wait_closed()
+        logger.info(f"New client connected! Remote address: {websocket.remote_address}")
+        
+        # We need to consume messages to avoid buffer filling up 
+        # and to handle connection closure properly
+        async for message in websocket:
+            logger.debug(f"Received from client: {message[:100]}")
+            
+    except websockets.exceptions.ConnectionClosedOK as e:
+        logger.info(f"Client disconnected gracefully (Clean closure): {e.code} / {e.reason}")
+    except websockets.exceptions.ConnectionClosedError as e:
+        logger.warning(f"Client disconnected with error: {e.code} / {e.reason}")
+    except Exception as e:
+        logger.error(f"Unexpected WebSocket error: {e}\n{traceback.format_exc()}")
     finally:
         connected_clients.discard(websocket)
+        logger.info(f"Client removed. Remaining clients: {len(connected_clients)}")
 
 async def broadcast_metrics():
     """Broadcast metrics to all connected clients."""
@@ -938,7 +961,8 @@ def main():
     app.run_server(
         host=args.host,
         port=args.port,
-        debug=args.debug
+        debug=False,
+        use_reloader=False
     )
 
 

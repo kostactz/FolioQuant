@@ -4,6 +4,7 @@ set -euo pipefail
 # Run helper for FolioQuant project
 # Usage:
 #   ./run.sh install    -> create virtualenv and install dependencies
+#   ./run.sh kill       -> kill the application and anything on port 8501
 #   ./run.sh            -> run Streamlit app (prefers venv), demo, or tests as fallback
 #   ./run.sh test       -> run the test suite via pytest (prefers venv python)
 
@@ -132,6 +133,15 @@ PY
     echo "Activate the virtual environment with:"
     echo "  source venv/bin/activate"
     echo ""
+    exit 0
+    ;;
+
+  kill)
+    echo "=== Killing FolioQuant and processes on port 8501 ==="
+    pkill -f "src.app.dash_app" || true
+    fuser -k 8501/tcp || true
+    lsof -ti:8501 | xargs kill -9 2>/dev/null || true
+    echo "Done."
     exit 0
     ;;
 

@@ -407,7 +407,7 @@ class BookManager:
             best_bid_size=best_bid[1] if best_bid else None,
             best_ask_price=best_ask[0] if best_ask else None,
             best_ask_size=best_ask[1] if best_ask else None,
-            timestamp=timestamp or datetime.utcnow(),
+            timestamp=timestamp if timestamp is not None else datetime.utcnow(),
             sequence=sequence,
         )
 
@@ -530,7 +530,7 @@ class BookManager:
             "state": self.get_book_state(),
             "previous_bbo": self.previous_bbo,  # Pass BBOState object directly
             "current_bbo": self.current_bbo,    # Pass BBOState object directly
-            "timestamp": self.current_bbo.timestamp or datetime.utcnow(),
+            "timestamp": self.current_bbo.timestamp if self.current_bbo.timestamp is not None else datetime.utcnow(),
             "sequence": self.current_bbo.sequence,
         }
         

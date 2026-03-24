@@ -94,13 +94,12 @@ def update_fast_metrics(n):
 
 
 def _get_connection_status_component():
-    """Generate the connection status badge component."""
-    if state.connected and state.book_initialized:
-        return html.Span("Connected", className="badge bg-success")
-    elif state.connected:
-        return html.Span("Initializing", className="badge bg-warning text-dark")
+    if getattr(state, 'connected', False) and getattr(state, 'book_initialized', False):
+        return "Connected"
+    elif getattr(state, 'connected', False):
+        return "Initializing"
     else:
-        return html.Span("Disconnected", className="badge bg-danger")
+        return "Disconnected" 
 
 
 def _get_price_component():
@@ -111,7 +110,6 @@ def _get_price_component():
 
 
 def _get_footer_component():
-    """Generate the footer status component."""
     heartbeat_str = ""
     if state.last_heartbeat:
         try:
@@ -119,108 +117,52 @@ def _get_footer_component():
             dt = datetime.fromisoformat(state.last_heartbeat.replace('Z', '+00:00'))
             heartbeat_str = f" | Heartbeat: {dt.strftime('%H:%M:%S')}"
         except Exception:
-            # Fallback if parsing fails
             heartbeat_str = f" | Heartbeat: {state.last_heartbeat[:19]}"
     
-    return html.Small([
-        f"Messages: {state.message_count:,}",
-        heartbeat_str,
-        f" | {'Streaming' if state.connected else 'Offline'}"
-    ])
+    return f"Messages: {state.message_count:,}{heartbeat_str} | {'Streaming' if getattr(state, 'connected', False) else 'Offline'}"
+
 
 
 def _get_market_metrics_components():
-    """
-    Generate all market metrics components.
+    if not getattr(state, 'book_initialized', False) or getattr(state, 'best_bid', None) is None or getattr(state, 'best_ask', None) is None:
+        return "-", "-", "-", "-", "Waiting for data..."
     
-    Returns:
-        Tuple of (bid_text, ask_text, spread_text, micro_text, imbalance_component)
-    """
-    if not state.book_initialized or not state.best_bid or not state.best_ask:
-        return "-", "-", "-", "-", html.Small("Waiting for data...", className="text-muted")
-    
-    # Format metrics
     bid_price, bid_size = state.best_bid
     ask_price, ask_size = state.best_ask
     
     bid_text = f"${bid_price:,.2f}"
     ask_text = f"${ask_price:,.2f}"
     
-    # Spread with BPS
     if state.spread and state.mid_price:
         spread_bps = (state.spread / state.mid_price) * 10000
-        spread_text = [
-            f"${state.spread:.2f} ",
-            html.Small(f"({spread_bps:.1f} bps)", className="text-muted ms-1")
-        ]
+        spread_text = f"${state.spread:.2f} ({spread_bps:.1f} bps)"
     elif state.spread:
         spread_text = f"${state.spread:.2f}"
     else:
         spread_text = "-"
     
-    micro_text = f"${state.micro_price:,.2f}" if state.micro_price else "-"
+    micro_text = f"${state.micro_price:,.2f}" if getattr(state, 'micro_price', None) else "-"
     
-    # Book imbalance progress bar
     total = bid_size + ask_size
     imbalance = ((bid_size - ask_size) / total * 100) if total > 0 else 0
-    
-    progress_value = (imbalance + 100) / 2
-    color = "success" if imbalance > 0 else "danger"
     label_text = 'BUY' if imbalance > 0 else 'SELL' if imbalance < 0 else 'BALANCED'
-    
-    imbalance_component = html.Div([
-        html.Small(
-            f"Book Imbalance: {imbalance:+.1f}% ({label_text} pressure)",
-            className="text-muted"
-        ),
-        dbc.Progress(
-            value=progress_value,
-            color=color,
-            className="mt-2",
-            style={'height': '10px'}
-        )
-    ])
+    imbalance_component = f"Book Imbalance: {imbalance:+.1f}% ({label_text} pressure)"
     
     return bid_text, ask_text, spread_text, micro_text, imbalance_component
 
 
 def _get_ofi_component():
-    """Generate the OFI display component."""
-    if not state.ofi_history or len(state.ofi_history) == 0:
+    if not getattr(state, 'ofi_history', None) or len(state.ofi_history) == 0:
         return "—"
     
     latest_ofi = state.ofi_history[-1]['ofi']
-    
-    if latest_ofi > 0:
-        direction = "BUY"
-        color_class = "text-success"
-    elif latest_ofi < 0:
-        direction = "SELL"
-        color_class = "text-danger"
-    else:
-        direction = "NEUTRAL"
-        color_class = "text-muted"
-    
-    return html.Div([
-        html.Span(f"{latest_ofi:+,.2f}", className=f"{color_class} me-2"),
-        html.Small(direction, className="text-muted")
-    ])
+    direction = "BUY" if latest_ofi > 0 else "SELL" if latest_ofi < 0 else "NEUTRAL"
+    return f"{latest_ofi:+,.2f} {direction}" 
 
 
 def _get_error_component():
-    """
-    Generate the error alert component.
-    
-    Returns:
-        Tuple of (error_text, error_open_boolean)
-    """
-    if state.error_message:
-        error_text = html.Div([
-            html.Strong("Error: ", className="me-2"),
-            html.Span(state.error_message)
-        ])
-        return error_text, True
-    
+    if getattr(state, 'error_message', None):
+        return f"Error: {state.error_message}", True
     return "", False
 
 
@@ -295,12 +237,7 @@ def _get_performance_metrics_components():
     latency_text = "—"
     if state.avg_latency_ms is not None:
         latency_text = f"{state.avg_latency_ms:.1f} ms"
-        if state.avg_latency_ms < 5:
-            latency_text = html.Span(latency_text, className="text-success")
-        elif state.avg_latency_ms < 20:
-            latency_text = html.Span(latency_text, className="text-info")
-        else:
-            latency_text = html.Span(latency_text, className="text-warning")
+
 
     # Latency Breakdown
     breakdown_text = "—"
@@ -312,81 +249,43 @@ def _get_performance_metrics_components():
         net_color = "text-success" if net_lat < 100 else "text-warning" if net_lat < 500 else "text-danger"
         sys_color = "text-success" if sys_lat < 5 else "text-warning" if sys_lat < 20 else "text-danger"
         
-        breakdown_text = html.Div([
-            html.Span(f"Net: {net_lat:.0f}ms", className=f"me-2 {net_color}"),
-            html.Span(f"|", className="text-muted me-2"),
-            html.Span(f"Sys: {sys_lat:.1f}ms", className=sys_color)
-        ])
+        breakdown_text = f"Net: {net_lat:.0f}ms | Sys: {sys_lat:.1f}ms" 
     
     # Throughput
     throughput_text = "—"
     if state.messages_per_second > 0:
         throughput_text = f"{state.messages_per_second:.1f} msg/s"
-        if state.messages_per_second > 50:
-            throughput_text = html.Span(throughput_text, className="text-success")
-        elif state.messages_per_second > 20:
-            throughput_text = html.Span(throughput_text, className="text-info")
-        else:
-            throughput_text = html.Span(throughput_text, className="text-muted")
+
     
     # Sharpe ratio
     sharpe_text = "—"
     if state.sharpe_ratio is not None:
         sharpe_text = f"{state.sharpe_ratio:.2f}"
-        if state.sharpe_ratio > 2.0:
-            sharpe_text = html.Span(sharpe_text, className="text-success fw-bold")
-        elif state.sharpe_ratio > 1.0:
-            sharpe_text = html.Span(sharpe_text, className="text-info")
-        elif state.sharpe_ratio > 0:
-            sharpe_text = html.Span(sharpe_text, className="text-warning")
-        else:
-            sharpe_text = html.Span(sharpe_text, className="text-danger")
+
     
     # Hit rate
     hitrate_text = "—"
     if state.hit_rate is not None:
         hitrate_text = f"{state.hit_rate:.1f}%"
-        if state.hit_rate > 60:
-            hitrate_text = html.Span(hitrate_text, className="text-success fw-bold")
-        elif state.hit_rate > 55:
-            hitrate_text = html.Span(hitrate_text, className="text-info")
-        elif state.hit_rate > 50:
-            hitrate_text = html.Span(hitrate_text, className="text-warning")
-        else:
-            hitrate_text = html.Span(hitrate_text, className="text-danger")
+
     
     # Max drawdown
     drawdown_text = "—"
     if state.max_drawdown is not None:
         drawdown_text = f"{abs(state.max_drawdown):.2f}%"
-        if abs(state.max_drawdown) < 5:
-            drawdown_text = html.Span(drawdown_text, className="text-success")
-        elif abs(state.max_drawdown) < 10:
-            drawdown_text = html.Span(drawdown_text, className="text-warning")
-        else:
-            drawdown_text = html.Span(drawdown_text, className="text-danger")
+
     
     # Win/loss ratio
     winloss_text = "—"
     if state.win_loss_ratio is not None:
         winloss_text = f"{state.win_loss_ratio:.2f}"
-        if state.win_loss_ratio > 1.5:
-            winloss_text = html.Span(winloss_text, className="text-success fw-bold")
-        elif state.win_loss_ratio > 1.0:
-            winloss_text = html.Span(winloss_text, className="text-info")
-        else:
-            winloss_text = html.Span(winloss_text, className="text-warning")
+
     
     # Price correlation
     correlation_text = "—"
     if state.price_correlation is not None:
         correlation_text = f"{state.price_correlation:+.3f}"
-        if abs(state.price_correlation) > 0.7:
-            correlation_text = html.Span(correlation_text, className="text-success fw-bold")
-        elif abs(state.price_correlation) > 0.3:
-            correlation_text = html.Span(correlation_text, className="text-info")
-        else:
-            correlation_text = html.Span(correlation_text, className="text-warning")
+
 
     return (
         latency_text, breakdown_text, throughput_text, sharpe_text,
@@ -541,13 +440,9 @@ def _generate_order_book_tables():
     # Spread indicator
     if state.spread and state.mid_price:
         spread_bps = (state.spread / state.mid_price) * 10000
-        spread_text = html.Div([
-            html.I(className="bi bi-arrow-left-right me-2"),
-            html.Span(f"Spread: ${state.spread:.2f} "),
-            html.Span(f"({spread_bps:.1f} bps)", className="small")
-        ], className="spread-indicator")
+        spread_text = f"Spread: ${state.spread:.2f} ({spread_bps:.1f} bps)"
     else:
-        spread_text = html.Div("—", className="spread-indicator")
+        spread_text = "—" 
     
     return asks_data, bids_data, spread_text
 
@@ -1276,7 +1171,8 @@ def update_configuration(product, ofi_window, chart_history, book_depth, signal_
     depth_text = f"Showing: {book_depth} levels"
     threshold_text = f"Signal: +/- {signal_threshold}"
     
-    return product, ofi_text, history_text, depth_text, threshold_text
+    from dash import no_update
+    return no_update, ofi_text, history_text, depth_text, threshold_text
 
 
 # Old update_analyst_view() and update_order_book_tables() functions removed
@@ -1349,7 +1245,7 @@ def manage_connection(start_clicks, stop_clicks, product):
 
 def register_callbacks(app):
     """Register all callbacks with the Dash app instance."""
-    from dash import ClientsideFunction
+    from dash import ClientsideFunction, Output, Input, State
     
     # ========== FAST CALLBACK - Connection Status (Client-side) ==========
     app.clientside_callback(
@@ -1357,10 +1253,20 @@ def register_callbacks(app):
             namespace='ws_clientside',
             function_name='update_connection_status'
         ),
-        Output('connection-status', 'children'),
         Output('current-price', 'children'),
         Output('footer-status', 'children'),
         Input('ws', 'message')
+    )
+    
+    # ========== WEBSOCKET STATE MONITOR (Client-side) ==========
+    app.clientside_callback(
+        ClientsideFunction(
+            namespace='ws_clientside',
+            function_name='monitor_ws_state'
+        ),
+        Output('connection-status', 'children'),
+        Input('ws', 'state'),
+        Input('ws', 'error')
     )
     
     # ========== FAST CALLBACK - Market Metrics (Client-side) ==========
@@ -1452,11 +1358,8 @@ def register_callbacks(app):
     )
 
     # ========== OFI CHART INITIALIZATION (ONCE) ==========
-    app.callback(
-        Output('ofi-chart', 'figure'),
-        Input('chart-initialized', 'data')
-    )(initialize_ofi_chart)
-
+    # Removed, now handled directly in layout
+    
     # ========== OFI CHART STREAMING (Client-side) ==========
     app.clientside_callback(
         ClientsideFunction(
@@ -1468,10 +1371,7 @@ def register_callbacks(app):
     )
 
     # ========== METRICS CHART INITIALIZATION (ONCE) ==========
-    app.callback(
-        Output('metrics-chart', 'figure'),
-        Input('chart-initialized', 'data')
-    )(initialize_metrics_chart)
+    # Removed, now handled directly in layout
 
     # ========== METRICS CHART STREAMING (Client-side) ==========
     app.clientside_callback(
@@ -1556,7 +1456,7 @@ def register_callbacks(app):
         # But `update_fast_metrics` updates status badge.
         # `manage_connection` updates button text (loading...).
         # I'll leave it without interval for now.
-        prevent_initial_call=False
+        prevent_initial_call=True
     )(manage_connection)
 
 

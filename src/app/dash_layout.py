@@ -18,6 +18,7 @@ from dash import html, dcc
 from dash_extensions import WebSocket
 import dash_bootstrap_components as dbc
 from dash import dash_table
+from .dash_callbacks import initialize_ofi_chart, initialize_metrics_chart
 import plotly.graph_objects as go
 
 
@@ -278,6 +279,7 @@ def create_ofi_chart():
         dbc.CardBody([
             dcc.Graph(
                 id='ofi-chart',
+                figure=initialize_ofi_chart(None),
                 config={'displayModeBar': False},
                 style={'height': '500px'}
             ),
@@ -395,6 +397,7 @@ def create_metrics_chart():
         dbc.CardBody([
             dcc.Graph(
                 id='metrics-chart',
+                figure=initialize_metrics_chart(None),
                 config={'displayModeBar': False},
                 style={'height': '350px'}
             )
@@ -846,6 +849,17 @@ def create_layout(ws_port=5000, state=None):
     Returns:
         dbc.Container with complete layout
     """
+    def get_host():
+        try:
+            from flask import request
+            if request and hasattr(request, 'host'):
+                return request.host.split(':')[0]
+        except Exception:
+            pass
+        return "127.0.0.1"
+
+    dynamic_host = get_host()
+
     return dbc.Container([
         # Header
         create_header(),
@@ -933,8 +947,12 @@ def create_layout(ws_port=5000, state=None):
         # Footer
         create_footer(),
         
-        # WebSocket component for real-time updates
-        WebSocket(id="ws", url=f"ws://127.0.0.1:{ws_port}"),
+        # dcc.Location to get current origin, useful for other clientside callbacks
+        dcc.Location(id='url', refresh=False),
+        
+        # WebSocket component for real-time updates (hardcoded from layout generation)
+        WebSocket(id="ws", url=f"ws://{dynamic_host}:{ws_port}"),
+        html.Div(id="ws-port", children=str(ws_port), style={"display": "none"}),
         
         # Store component for initial data
         dcc.Store(id='chart-initialized', data=True)

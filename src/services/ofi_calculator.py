@@ -122,7 +122,9 @@ class OFICalculator:
         # Extract BBO states (they come as dicts from BookManager, or objects from tests)
         prev_bbo_raw = event.get('previous_bbo')
         curr_bbo_raw = event.get('current_bbo')
-        timestamp: datetime = event.get('timestamp', datetime.utcnow())
+        timestamp: datetime = event.get('timestamp')
+        if timestamp is None:
+            timestamp = datetime.utcnow()
         sequence: Optional[int] = event.get('sequence')
         
         # Convert to BBOState objects if needed
@@ -395,7 +397,7 @@ class OFICalculator:
         max_event = Decimal(str(max(event_values)))
         
         return OFISignal(
-            timestamp=latest.timestamp or datetime.utcnow(),
+            timestamp=latest.timestamp if latest.timestamp is not None else datetime.utcnow(),
             ofi_value=ofi_value,
             window_size=len(self.events),
             max_window_size=self.window_size,

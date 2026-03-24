@@ -126,6 +126,11 @@ class DashboardState:
     ofi_points_emitted: int = 0
     metric_points_emitted: int = 0
     
+    # Internal threading state (shared across module instances if duplicated)
+    _event_loop: Optional[object] = None
+    _connection_task: Optional[object] = None
+    _event_loop_lock: object = field(default_factory=__import__('threading').Lock)
+    
     def reset(self):
         """Reset state (useful for reconnection)."""
         self.connected = False

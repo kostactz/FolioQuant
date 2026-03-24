@@ -103,6 +103,7 @@ class MetricsService:
         self.trading_fee_bps = Decimal(str(trading_fee_bps))
         self.signal_threshold = Decimal(str(signal_threshold))
         self.min_return_std_epsilon = Decimal(str(min_return_std_epsilon))
+        self.hysteresis_band = self.signal_threshold * Decimal('0.5')
         self.last_volatility: Optional[Decimal] = None
         # Last computed per-period (unannualized) mean and std for diagnostics
         self.last_period_mean_return: Optional[Decimal] = None
@@ -227,49 +228,70 @@ class MetricsService:
     
     def _evaluate_trade(self, signal: OFISignal) -> None:
         """
-        Evaluate if a trade should be executed based on the new signal.
+        Evaluate if a trade should be executed using a 3-state (Long/Flat/Short)
+        transition model with hysteresis to prevent microstructure whipsawing.
         """
         if len(self.signal_history) < 2:
             return
-
-        # Use previous signal for decision (simulate reality where we act on available info)
-        # But here we are processing the *current* signal update. 
-        # Actually, self.signal_history[-1] is the current signal.
-        # We trade based on the current signal value for the *next* price move.
-        
+            
         current_ofi = signal.ofi_value
         current_price = signal.mid_price
         timestamp = signal.timestamp
         
-        # Determine target position
+        # 1. Define distinct entry and exit boundaries.
+        # Example: If signal_threshold is 0.4 and hysteresis_band is 0.2
+        # We enter at > 0.4, but we exit (flatten) when it decays below 0.2.
+        entry_threshold = self.signal_threshold
+        exit_threshold = max(Decimal('0.0'), self.signal_threshold - self.hysteresis_band)
+        
         target_pos = self.current_position
         
-        if current_ofi > self.signal_threshold:
-            target_pos = Decimal('1.0')
-        elif current_ofi < -self.signal_threshold:
-            target_pos = Decimal('-1.0')
-        
-        # Check for trade
+        # 2. State Machine Evaluation
+        if self.current_position == Decimal('0.0'):
+            # Currently Flat: Require a strong, unambiguous signal to enter
+            if current_ofi > entry_threshold:
+                target_pos = Decimal('1.0')
+            elif current_ofi < -entry_threshold:
+                target_pos = Decimal('-1.0')
+                
+        elif self.current_position == Decimal('1.0'):
+            # Currently Long: Flatten if signal degrades, reverse only if it violently flips
+            if current_ofi < -entry_threshold:
+                target_pos = Decimal('-1.0')  # Full reversal (rare shock)
+            elif current_ofi < exit_threshold:
+                target_pos = Decimal('0.0')   # Flatten to stop the bleeding
+                
+        elif self.current_position == Decimal('-1.0'):
+            # Currently Short: Flatten if signal degrades, reverse only if it violently flips
+            if current_ofi > entry_threshold:
+                target_pos = Decimal('1.0')   # Full reversal (rare shock)
+            elif current_ofi > -exit_threshold:
+                target_pos = Decimal('0.0')   # Flatten to stop the bleeding
+
+        # 3. Execute trade only if the target position actually changed
         if target_pos != self.current_position:
+            # Sizing will automatically be 1.0 for entries/exits, and 2.0 for full reversals
+            trade_size = abs(target_pos - self.current_position)
             side = 'buy' if target_pos > self.current_position else 'sell'
-            size = abs(target_pos - self.current_position)
             
             trade = {
                 'timestamp': timestamp,
                 'side': side,
                 'price': float(current_price),
-                'size': float(size),
+                'size': float(trade_size),
                 'ofi': float(current_ofi)
             }
+            
             trade_logger.info(
                 "trade side=%s size=%.4f price=%.2f ofi=%.4f from_pos=%.2f to_pos=%.2f",
                 side,
-                float(size),
+                float(trade_size),
                 float(current_price),
                 float(current_ofi),
                 float(self.current_position),
                 float(target_pos),
             )
+            
             self.recent_trades.append(trade)
             self.current_position = target_pos
     
@@ -986,9 +1008,10 @@ class MetricsService:
         else:
             ofi_mean = ofi_std = ofi_min = ofi_max = None
         
+        snapshot_timestamp = self.signal_history[-1][0] if self.signal_history else datetime.utcnow()
         # Create snapshot
         snapshot = MetricsSnapshot(
-            timestamp=datetime.utcnow(),
+            timestamp=snapshot_timestamp,
             window_size=len(self.signal_history),
             sharpe_ratio=sharpe_ratio,
             hit_rate=hit_rate,
