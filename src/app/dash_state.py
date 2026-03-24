@@ -64,7 +64,7 @@ class DashboardState:
     ofi_window: int = 100
     chart_history: int = 500
     book_depth: int = 10
-    signal_threshold: float = 5.0  # Adjustable signal threshold
+    signal_threshold: float = 0.5  # Adjustable signal threshold (typical OFI: 0.0-2.0)
     
     # Service references
     metrics_service: Optional[object] = None

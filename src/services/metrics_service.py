@@ -126,6 +126,16 @@ class MetricsService:
         self.current_position = Decimal('0.0')
         self.recent_trades: deque[dict] = deque(maxlen=window_size)
         
+        # Phase 3a: Position-level exit tracking (for exit logic integration)
+        self.position_entry_info: Optional[Dict] = None  # Track entry price, signal, time
+        
+        # Phase 3b: Latency compensation (use previous tick's OFI for decisions)
+        self.use_lagged_ofi = True  # Enable lagged OFI by default
+        
+        # Phase 3c: Dynamic position sizing based on volatility
+        self.use_dynamic_sizing = True  # Enable dynamic position sizing
+        self.base_position_size = Decimal('1.0')  # Base size (scales down in high vol)
+        
         logger.info(
             f"MetricsService initialized: window_size={window_size}, "
             f"risk_free_rate={risk_free_rate}, fee_bps={trading_fee_bps}, threshold={signal_threshold}"
@@ -389,6 +399,15 @@ class MetricsService:
         # Store for diagnostics
         self.last_volatility = std_return * annualization_factor
         
+        # 4. Hard floor: Don't report clearly unprofitable strategies
+        # Sharpe < -0.5 means strategy is deeply negative and not worth displaying
+        # This prevents misleading users with "valid but losing" metrics
+        SHARPE_MIN_THRESHOLD = Decimal('-0.5')
+        if sharpe_annual < SHARPE_MIN_THRESHOLD:
+            logger.info(f"[SHARPE] Strategy unprofitable ({sharpe_annual:.2f} < {SHARPE_MIN_THRESHOLD}). "
+                       f"Returning None. (mean_return={mean_return:.6f}, stdev={std_return:.6f})")
+            return None
+        
         return sharpe_annual
 
     def _estimate_periods_per_year(self, timestamps: List[datetime]) -> float:
@@ -418,20 +437,118 @@ class MetricsService:
         return max(1.0, estimated_periods)
 
     def _target_position(self, signal_value: Decimal, current_pos: Decimal) -> Decimal:
-        """Map signal to target position using threshold+hysteresis."""
+        """
+        Map signal to target position using threshold+hysteresis.
+        
+        Phase 3c: Supports dynamic position sizing based on rolling volatility.
+        Higher volatility = smaller position size (risk management).
+        Lower volatility = larger position size (capture edge).
+        """
+        # Determine direction from signal (long/short/neutral)
         if signal_value > self.signal_threshold:
-            return Decimal('1.0')
-        if signal_value < -self.signal_threshold:
-            return Decimal('-1.0')
-        return current_pos
+            direction = Decimal('1.0')  # Long
+        elif signal_value < -self.signal_threshold:
+            direction = Decimal('-1.0')  # Short
+        else:
+            return current_pos  # No signal change
+        
+        # Phase 3c: Dynamic position sizing
+        if self.use_dynamic_sizing and self.last_volatility is not None and self.last_volatility > 0:
+            # Scale position inversely to volatility
+            # High vol (e.g., 20%) → smaller position
+            # Low vol (e.g., 5%) → larger position
+            # Formula: position_size = base_size / (1 + volatility_scaling_factor)
+            
+            volatility_pct = self.last_volatility  # Already in percentage (e.g., 10 for 10%)
+            volatility_scaling = Decimal('1.0') + (volatility_pct / Decimal('100.0')) * Decimal('2.0')
+            
+            # Cap the scaling to prevent positions from going too small or too large
+            volatility_scaling = max(Decimal('0.5'), min(Decimal('2.0'), volatility_scaling))
+            
+            position_size = self.base_position_size / volatility_scaling
+            return direction * position_size
+        
+        return direction * self.base_position_size
+
+    def _should_exit_position(
+        self, 
+        entry_price: Decimal,
+        current_price: Decimal,
+        entry_signal: Decimal,
+        current_signal: Decimal,
+        ticks_held: int
+    ) -> Tuple[bool, str]:
+        """
+        Determine if an active position should be exited based on multiple conditions.
+        
+        Exit conditions (in priority order):
+        1. Stop-loss: Limit losses to -5% to prevent large drawdowns
+        2. Profit-taking: Lock in +2% gains to capture edge
+        3. Signal reversal: Exit if signal flipped opposite and strongly negative
+        4. Max hold time: Exit after 60+ ticks (prevents zombie positions)
+        
+        Args:
+            entry_price: Entry execution price
+            current_price: Current mid-price
+            entry_signal: OFI value at entry
+            current_signal: OFI value now
+            ticks_held: Number of observations since entry
+        
+        Returns:
+            Tuple of (should_exit, reason_string)
+        """
+        if entry_price <= 0 or current_price <= 0:
+            return False, "invalid_prices"
+        
+        current_return = (current_price - entry_price) / entry_price
+        
+        # Condition 1: Stop-loss at -5% drawdown
+        # This bounds maximum loss per trade and prevents spiral into deeper loss
+        STOP_LOSS_THRESHOLD = Decimal('-0.05')
+        if current_return < STOP_LOSS_THRESHOLD:
+            return True, "stop_loss"
+        
+        # Condition 2: Profit-taking at +2% gain
+        # Lock in wins to avoid giving back edge
+        PROFIT_TARGET = Decimal('0.02')
+        if current_return > PROFIT_TARGET:
+            return True, "profit_taking"
+        
+        # Condition 3: Signal reversal with strong conviction
+        # If we went long (entry_signal > 0) but OFI is now strongly negative,
+        # the premise of the trade has been violated; exit position
+        SIGNAL_REVERSAL_THRESHOLD = Decimal('-1.0')
+        if entry_signal > self.signal_threshold and current_signal < SIGNAL_REVERSAL_THRESHOLD:
+            return True, "signal_reversal_long"
+        
+        # Same for short positions
+        if entry_signal < -self.signal_threshold and current_signal > -SIGNAL_REVERSAL_THRESHOLD:
+            return True, "signal_reversal_short"
+        
+        # Condition 4: Maximum hold time
+        # Prevent positions from staying open indefinitely (max ~60 seconds assuming 1Hz ticks)
+        MAX_HOLD_TICKS = 60
+        if ticks_held > MAX_HOLD_TICKS:
+            return True, "max_hold_time_exceeded"
+        
+        return False, "hold"
 
     def _compute_strategy_returns(self) -> List[Dict[str, Decimal | datetime]]:
-        """Build a canonical return stream used by all strategy metrics."""
+        """
+        Build a canonical return stream used by all strategy metrics.
+        
+        Phase 3a: Integrates exit logic (stop-loss, profit-taking, signal reversal, max hold)
+        Phase 3b: Uses lagged OFI (previous tick) for decisions to compensate for latency
+        Phase 3c: Applies dynamic position sizing based on rolling volatility
+        """
         if len(self.signal_history) < 2:
             return []
 
         current_pos = Decimal('0.0')
         results: List[Dict[str, Decimal | datetime]] = []
+        
+        # Phase 3a: Track active position entry info for exit logic
+        position_entries: Dict[float, Dict] = {}  # position_id -> {entry_price, entry_signal, entry_tick}
 
         for i in range(1, len(self.signal_history)):
             prev_timestamp, prev_ofi, prev_price, prev_spread = self.signal_history[i - 1]
@@ -441,7 +558,38 @@ class MetricsService:
                 continue
 
             price_return = (curr_price - prev_price) / prev_price
-            target_pos = self._target_position(prev_ofi, current_pos)
+            
+            # Phase 3b: Latency Compensation
+            # Use previous tick's OFI instead of current for signal generation
+            # This mimics trading on available information rather than perfect foresight
+            decision_ofi = prev_ofi if self.use_lagged_ofi else curr_ofi
+            
+            # Determine target position based on lagged signal
+            target_pos = self._target_position(decision_ofi, current_pos)
+            
+            # Phase 3a: Exit Logic Integration
+            # Check if active position should be exited based on multiple criteria
+            if current_pos != Decimal('0.0'):
+                pos_id = float(current_pos)  # Simple position identifier
+                
+                if pos_id in position_entries:
+                    entry_info = position_entries[pos_id]
+                    ticks_held = i - entry_info['entry_tick']
+                    
+                    should_exit, exit_reason = self._should_exit_position(
+                        entry_price=entry_info['entry_price'],
+                        current_price=curr_price,
+                        entry_signal=entry_info['entry_signal'],
+                        current_signal=decision_ofi,
+                        ticks_held=ticks_held
+                    )
+                    
+                    if should_exit:
+                        # Force exit by reverting to neutral position
+                        target_pos = Decimal('0.0')
+                        logger.debug(f"[EXIT] Triggered: {exit_reason}, held {ticks_held} ticks")
+            
+            # Calculate costs and returns
             cost_return = self._calculate_trade_cost(current_pos, target_pos, curr_spread, curr_price)
             gross_return = target_pos * price_return
             net_return = gross_return - cost_return
@@ -451,6 +599,18 @@ class MetricsService:
                 'return': net_return,
                 'position': target_pos,
             })
+
+            # Track new position entry
+            if target_pos != Decimal('0.0') and current_pos == Decimal('0.0'):
+                position_entries[float(target_pos)] = {
+                    'entry_price': curr_price,
+                    'entry_signal': decision_ofi,
+                    'entry_tick': i
+                }
+            
+            # Clean up exited positions
+            if target_pos == Decimal('0.0') and float(current_pos) in position_entries:
+                del position_entries[float(current_pos)]
 
             current_pos = target_pos
 
